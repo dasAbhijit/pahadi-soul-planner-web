@@ -37,7 +37,11 @@ npm run typecheck
 npm run build        # dist/ with the offline service worker (sw.js)
 npm run preview      # serve dist/ to try the offline behaviour
 node cloud/test-code.js   # the sheet script, against a fake Google
+npm run build && npm run e2e   # two real Chrome profiles sync through the real cloud/Code.gs (fake Google)
+npm run tour              # opens every screen, checks for errors, reopens offline (needs a build first)
 ```
+
+`npm run e2e` needs Google Chrome on this Mac. It checks the whole path in a browser engine: connect, add a trek, book from two phones at once, merge, seats, a double entry flagged, delete reaching the other phone.
 
 The service worker (`scripts/make-sw.mjs` writes `dist/sw.js`) keeps the app files for offline use and only touches this site's own files. Calls to Google (Gemini and the sync script) always go to the network.
 

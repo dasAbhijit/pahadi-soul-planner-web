@@ -4,3 +4,4 @@ dist/
 *.log
 .env
 .smoke/
+e2e/out/
