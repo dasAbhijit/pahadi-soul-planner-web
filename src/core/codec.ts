@@ -2,7 +2,7 @@ import {
   DIFFICULTIES, ENTRY_KINDS, PAYMENT_MODES, PAYMENT_STATUSES, RATE_UNITS, SERVICE_TYPES,
   type Booking, type GuidanceRule, type LedgerEntry, type SyncFields, type Trek, type TripAgreement, type TripShare, type Vendor,
 } from './models';
-import { isId, nowSecond, parseInstant, type Id, type Instant } from './ids';
+import { isId, nowSecond, parseInstant, toInstant, type Id, type Instant } from './ids';
 
 /**
  * Reads a record from JSON the way the iPhone and Android apps do: a missing optional field takes its default,
@@ -145,9 +145,20 @@ export function parseRule(o: unknown): GuidanceRule | null {
 
 // ------------------------------------------------------------------ JSON text
 
-/** JSON with sorted keys and no undefined values, so equal records give equal text. */
+const DATE_KEYS = new Set(['date', 'createdAt', 'updatedAt', 'deletedAt', 'startDate', 'cancelledAt']);
+const FRACTION = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.\d+(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * JSON with sorted keys and no undefined values, so equal records give equal text. Date fields are cut to whole
+ * seconds, as they are when saved, so a record made a moment ago in memory equals its saved copy.
+ */
 export function canonical(value: unknown): string {
-  return JSON.stringify(value, (_k, v) => {
+  return JSON.stringify(value, (k, v) => {
+    if (typeof v === 'string' && DATE_KEYS.has(k)) {
+      const m = FRACTION.exec(v);
+      if (m) return toInstant(Date.parse(v));
+      return v;
+    }
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const src = v as Record<string, unknown>;
       const out: Record<string, unknown> = {};

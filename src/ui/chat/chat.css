@@ -1,0 +1,31 @@
+.chat-top { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--border); padding: 4px 16px 10px; display: flex; flex-direction: column; gap: 8px; }
+.chat-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); flex: none; }
+.dot.warn { background: var(--marigold); }
+.chat-brief { display: flex; align-items: center; gap: 8px; }
+.chat-msgs { padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.chat-intro { padding: 24px 0; display: flex; flex-direction: column; gap: 6px; }
+.msg-user { align-self: flex-end; max-width: 85%; background: var(--pine); color: #fff; border-radius: 18px; padding: 12px 16px; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.msg-model { display: flex; flex-direction: column; gap: 10px; max-width: 94%; align-self: flex-start; }
+.bubble { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; font-size: 15px; user-select: text; -webkit-user-select: text; }
+.bubble.err { background: var(--rust-bg); color: var(--rust); }
+.bubble .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; background: var(--ground); border-radius: 4px; padding: 0 4px; }
+.pillbtn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 999px; padding: 0 16px; font-size: 14px; font-weight: 700; text-decoration: none; border: 1px solid var(--field-border); background: var(--surface); color: var(--pine); }
+.pillbtn.solid { background: var(--pine); color: #fff; border-color: var(--pine); }
+.pillbtn:disabled { opacity: .5; }
+.msg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.spin { width: 16px; height: 16px; border: 2px solid var(--segment-track); border-top-color: var(--pine); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.proposal { background: var(--proposal-bg); border: 2px solid var(--border); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.proposal.pending { border-color: var(--marigold); }
+.chat-foot { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.chat-chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 0 16px 2px; scrollbar-width: none; }
+.chat-chips::-webkit-scrollbar { display: none; }
+.chat-chips .pillbtn { flex: none; font-weight: 500; }
+.chat-input { display: flex; align-items: flex-end; gap: 10px; }
+.chat-input textarea { flex: 1; border-radius: 24px; min-height: 48px; max-height: 140px; resize: none; padding: 12px 16px; }
+.sendbtn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--marigold); color: var(--ink); font-size: 20px; font-weight: 700; flex: none; display: flex; align-items: center; justify-content: center; }
+.sendbtn:disabled { opacity: .5; }
+.sendbtn.stop { background: var(--ink); color: #fff; font-size: 14px; }
+.keybar { display: flex; align-items: center; gap: 8px; background: var(--info-bg); color: var(--info-fg); font-size: 14px; padding: 4px 4px 4px 12px; border-radius: 12px; }

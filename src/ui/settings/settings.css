@@ -1,0 +1,14 @@
+.status { font-size: 13px; font-weight: 500; }
+.status.ok { color: var(--ok); }
+.status.bad { color: var(--rust); }
+.status.muted { color: var(--muted); font-weight: 400; }
+.btnrow { display: flex; gap: 8px; }
+.btnrow > * { flex: 1; width: auto; }
+.btnrow .btn.outline { min-width: 0; padding: 0 6px; }
+.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.ruleline { display: flex; align-items: center; gap: 2px; }
+.card.pad0 { padding: 4px 4px 4px 14px; }
+.chev { font-size: 24px; color: var(--muted); }
+.kv { display: flex; gap: 8px; font-size: 14px; }
+.kv .k { color: var(--muted); min-width: 108px; }

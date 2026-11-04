@@ -5,6 +5,6 @@ import preact from '@preact/preset-vite';
 export default defineConfig({
   base: './',
   plugins: [preact()],
-  build: { target: 'es2022', sourcemap: false },
+  build: { target: ['es2020', 'safari15', 'chrome90'], sourcemap: false },
   test: { environment: 'node', include: ['test/**/*.test.ts'] },
 });

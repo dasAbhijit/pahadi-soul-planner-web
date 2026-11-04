@@ -1,0 +1,54 @@
+# Pahadi Soul Planner (web)
+
+The Pahadi Soul Travels staff app as an installable website. It does the same things as the iPhone app (`../pahadi_soul_travels`) and the Android app (`../pahadi_soul_travels_android`): chat with Gemini using the staff member's own key, pitch upcoming treks, record bookings, keep a money ledger by trip, traveller and vendor, keep a vendor directory the assistant can suggest from, learn house rules from staff guidance, and sync through a Google Sheet.
+
+It runs in the phone's browser, and installs to the Home Screen like an app. Because it is not signed by Apple, it **does not expire after 7 days** like the sideloaded iPhone app.
+
+TypeScript, Preact, Vite. No server and no database: everything is stored on the device.
+
+- **Put it online and install it:** [`DEPLOY.md`](DEPLOY.md)
+- **Set up the Google Sheet for sync:** [`cloud/README.md`](cloud/README.md) (the same script as the other two apps)
+
+## Same rules, same files
+
+The core in `src/core` is a port of the Android core, so the rules match: every transaction belongs to one trip and one traveller or vendor; a cost covering several trips is saved as one entry per trip; cancelled bookings are kept so refunds can name the traveller; seats left is the trek's capacity minus the seats of live bookings.
+
+- **Backups** use the same JSON layout, so a backup moves between the web, iPhone and Android apps.
+- **Cloud sync** writes the same five tabs and columns, and merges the same way (last change wins per record, deletes are kept as tombstones, seats are recomputed, lookalike payments are flagged). A phone, an Android and a web app can all sync to one sheet.
+- Records written by the other apps are read as they are: uppercase UUIDs, ISO 8601 dates to the second, empty optionals left out. A row the web app cannot read stops the sync and changes nothing.
+
+## Differences from the phone apps
+
+| | Phone apps | Web app |
+|---|---|---|
+| Gemini key and sync secret | Keychain / Android Keystore (encrypted) | This browser's storage, **unencrypted**. Never in backups or the sheet |
+| Where data lives | App's private folder | The browser's storage for this address. The Home Screen app and Safari keep separate copies on iPhone |
+| Expiry | 7 days (iPhone, free Apple ID) | None |
+| Backup | File picker | Share sheet (iPhone, Android) or a download (computer) |
+| Cloud sync | Native HTTP | Browser `fetch`. Needs Google to allow the browser to read the reply. **Not yet tested against a real sheet** |
+
+## Develop
+
+```
+npm install
+npm run dev          # http://localhost:5173
+npm test             # vitest
+npm run typecheck
+npm run build        # dist/ with the offline service worker (sw.js)
+npm run preview      # serve dist/ to try the offline behaviour
+node cloud/test-code.js   # the sheet script, against a fake Google
+```
+
+The service worker (`scripts/make-sw.mjs` writes `dist/sw.js`) keeps the app files for offline use and only touches this site's own files. Calls to Google (Gemini and the sync script) always go to the network.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `src/core` | Models, JSON reading, stores, merge sync, sheet and Gemini clients, prompt builder, backup. No UI. Mirrors the Android `core` package |
+| `src/ui` | Screens (`chat`, `treks`, `money`, `vendors`, `settings`), shared components (`kit.tsx`), router, theme |
+| `test` | vitest tests, including two simulated phones syncing through a fake sheet |
+| `cloud` | The Google Apps Script and its setup guide (identical in all three repos) |
+| `public` | Manifest and icons |
+| `scripts` | Build step that writes the service worker |
+| `.github/workflows` | Test, build and publish to GitHub Pages on every push to `main` |
