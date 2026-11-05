@@ -414,6 +414,14 @@ function trekChoices(treks: Trek[], now: Date, includePast: boolean): ChoiceOpti
     .slice(0, 12).map((r) => ({ value: r.trek.id, label: r.trek.name, detail: trekWhen(r.trek) }));
 }
 
+/** Other runs of a trek with the same name, so a wrong date is easy to spot. Past runs count only for money. */
+function otherRuns(trek: Trek, deps: DraftDeps, now: Date, includePast: boolean): string | undefined {
+  const same = deps.treks.treks.filter((t) => t.id !== trek.id && t.name.toLowerCase() === trek.name.toLowerCase() && (includePast || trekTiming(t, now) !== 'past'));
+  if (same.length === 0) return undefined;
+  const when = same.map((t) => (t.startDate ? fmtDay(t.startDate) : 'on request')).slice(0, 3).join(', ');
+  return `Other dates for this trek: ${when}. Edit or deny if this is the wrong one.`;
+}
+
 const modeChoice = (): Choice => ({ field: 'mode', prompt: 'How was it paid?', options: PAYMENT_MODES.map((m) => ({ value: m, label: m })) });
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const travellerLabel = (b: Booking) => `${b.travellers[0]}${partySize(b) > 1 ? ` + ${partySize(b) - 1}` : ''}`;
@@ -455,6 +463,8 @@ function viewBooking(d: BookingDraftData, deps: DraftDeps, role: Role | undefine
   } else {
     rows.push({ label: 'Trek', value: `${trek.name}\n${trekWhen(trek)}`, strong: true });
     if (trekTiming(trek, now) === 'past') problems.push('This trek has already started or finished.');
+    const others = otherRuns(trek, deps, now, false);
+    if (others) sums.push(others);
   }
   const n = d.travellers.length;
   rows.push({ label: 'Travellers', value: n === 0 ? 'None given' : d.travellers.map((t, i) => (i === 0 && n > 1 ? `${t} (contact)` : t)).join('\n') });
@@ -527,7 +537,9 @@ function viewPaymentIn(d: PaymentInDraftData, deps: DraftDeps, role: Role | unde
     choice = { field: 'trek', prompt: 'Which trip?', options: trekChoices(deps.treks.treks, now, true) };
     problems.push(d.trekID === undefined ? 'Choose the trip.' : 'That trek no longer exists.');
   } else {
-    rows.push({ label: 'Trip', value: trek.name });
+    rows.push({ label: 'Trip', value: `${trek.name}${trek.startDate ? ` · ${fmtDay(trek.startDate)}` : ''}` });
+    const others = otherRuns(trek, deps, now, true);
+    if (others) sums.push(others);
     const booking = d.bookingID === undefined ? undefined : deps.bookings.booking(d.bookingID);
     if (booking && (booking.trekID !== trek.id || isCancelled(booking))) {
       problems.push('That booking is not on this trip, or it is cancelled.');
@@ -571,7 +583,11 @@ function viewPaymentOut(d: PaymentOutDraftData, deps: DraftDeps, role: Role | un
     rows.push({ label: 'Trip', value: 'Not chosen yet' });
     choice = { field: 'trek', prompt: 'Which trip?', options: trekChoices(deps.treks.treks, now, true) };
     problems.push(d.trekID === undefined ? 'Choose the trip.' : 'That trek no longer exists.');
-  } else rows.push({ label: 'Trip', value: trek.name });
+  } else {
+    rows.push({ label: 'Trip', value: `${trek.name}${trek.startDate ? ` · ${fmtDay(trek.startDate)}` : ''}` });
+    const others = otherRuns(trek, deps, now, true);
+    if (others) sums.push(others);
+  }
 
   if (vendor) {
     rows.push({ label: 'Paid to', value: `${vendor.name} · ${vendor.service}` });

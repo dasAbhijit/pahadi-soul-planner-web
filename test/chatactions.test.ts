@@ -612,3 +612,21 @@ function makeEntryLike(h: Harness, amount: number, kind: 'Money in' | 'Money out
     shares: [{ trekID: h.gorkhey.id, trekName: h.gorkhey.name, amount }],
   };
 }
+
+describe('chat actions: a wrong date is easy to spot', () => {
+  it('says when the same trek also runs on other dates, on bookings and payments', async () => {
+    const h = new Harness();
+    h.treks.upsert(makeTrek({ name: 'gorkhey – samanden', durationDays: 4, startDate: start(50), pricePerPerson: 9500, seatsLeft: 9, seatCapacity: 9 }));
+    h.next = [bookingCall({ amount_received: undefined, payment_mode: undefined })];
+    const chat = h.chat();
+    await chat.send('Book on Gorkhey', NOW);
+    const v = chat.viewDraft(chat.messages[1].drafts![0], NOW)!;
+    expect(v.sums.some((x) => x.startsWith('Other dates for this trek: ') && x.includes('Dec 2026'))).toBe(true);
+    // a trek that runs once says nothing
+    const solo = new Harness();
+    solo.next = [bookingCall({ amount_received: undefined, payment_mode: undefined })];
+    const c2 = solo.chat();
+    await c2.send('Book on Gorkhey', NOW);
+    expect(c2.viewDraft(c2.messages[1].drafts![0], NOW)!.sums.some((x) => x.startsWith('Other dates'))).toBe(false);
+  });
+});
