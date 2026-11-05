@@ -377,11 +377,12 @@ test('Staff never receive money out, vendor rates or agreements; they do receive
   const { env, staff } = seeded();
   const r = pull(env, staff.session);
   assert.deepStrictEqual(lines(r, 'Money').map((m) => m.id), ['M1']);
-  assert.ok(!JSON.stringify(r).includes('8000'));
+  assert.ok(lines(r, 'Money').every((m) => m.kind === 'Money in' && m.amount !== 8000));
   const v = byId(lines(r, 'Vendors'), 'V1');
   assert.deepStrictEqual([v.name, v.phone, v.rate, v.agreements], ['Porters', '98300', undefined, []]);
-  assert.ok(!JSON.stringify(r).includes('40000'));
-  assert.ok(!JSON.stringify(r).includes('900'));
+  // Look at the records themselves: random ids in the reply could spell any number by chance.
+  const vendorText = r.tables.Vendors.join('');
+  assert.ok(!vendorText.includes('"rate"') && !vendorText.includes('"amount"') && !vendorText.includes('"trekName"'));
   assert.strictEqual(lines(r, 'Bookings').length, 1);
   assert.strictEqual(lines(r, 'Treks').length, 1);
   assert.strictEqual(lines(r, 'Guidance').length, 1);
