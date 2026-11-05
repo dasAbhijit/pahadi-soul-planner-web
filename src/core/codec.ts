@@ -72,7 +72,10 @@ function clean<T extends object>(o: T): T {
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function stamps(r: Reader) {
-  return { updatedAt: r.optDate('updatedAt'), deletedAt: r.optDate('deletedAt') };
+  return {
+    updatedAt: r.optDate('updatedAt'), deletedAt: r.optDate('deletedAt'),
+    createdBy: r.optId('createdBy'), updatedBy: r.optId('updatedBy'),
+  };
 }
 
 export function parseTrek(o: unknown): Trek | null {

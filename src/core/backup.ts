@@ -105,7 +105,7 @@ export function restoreBackup(b: Backup, s: {
 
 // ------------------------------------------------------------------ CSV
 
-export const CSV_HEADER = ['Date', 'Type', 'Amount (INR)', 'Trip', 'Traveller', 'Vendor', 'Paid by', 'Note'];
+export const CSV_HEADER = ['Date', 'Type', 'Amount (INR)', 'Trip', 'Traveller', 'Vendor', 'Paid by', 'Note', 'Recorded by'];
 
 /** Quotes a cell, and stops spreadsheet programs from running text that starts like a formula. */
 export function csvEscape(cell: string): string {
@@ -115,12 +115,12 @@ export function csvEscape(cell: string): string {
   return s;
 }
 
-/** The money ledger as a spreadsheet file, oldest first. */
-export function ledgerCsv(entries: LedgerEntry[]): string {
+/** The money ledger as a spreadsheet file, oldest first. `nameOf` turns a person id into a name for "Recorded by". */
+export function ledgerCsv(entries: LedgerEntry[], nameOf: (id: string | undefined) => string | undefined = () => undefined): string {
   const sorted = [...entries].sort((a, b) => ms(a.date) - ms(b.date) || ms(a.createdAt) - ms(b.createdAt));
   const lines = [CSV_HEADER.join(',')];
   for (const e of sorted) {
-    const row = [dayKey(e.date), e.kind, String(e.amount), e.shares.map((s) => s.trekName).join('; '), e.customerName ?? '', e.vendorName ?? '', e.mode, e.note];
+    const row = [dayKey(e.date), e.kind, String(e.amount), e.shares.map((s) => s.trekName).join('; '), e.customerName ?? '', e.vendorName ?? '', e.mode, e.note, nameOf(e.createdBy) ?? ''];
     lines.push(row.map(csvEscape).join(','));
   }
   return lines.join('\r\n') + '\r\n';

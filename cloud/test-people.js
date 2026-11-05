@@ -200,6 +200,17 @@ test('invite: code looks like XXXX-XXXX-XXXX, works once, and the person picks t
   assert.strictEqual(env.call({ action: 'signIn', name: 'Tashi Sherpa', password: 'tashi-password-1' }).ok, true);
 });
 
+test('invite preview shows who the invite is for, spends nothing, and is refused for wrong codes', () => {
+  const env = fresh();
+  const inv = env.call({ action: 'invite', session: env.ownerSession, name: 'Tashi Sherpa', role: 'Staff' });
+  const p = env.call({ action: 'invitePreview', invite: inv.code });
+  assert.deepStrictEqual([p.ok, p.name, p.role, p.invitedBy], [true, 'Tashi Sherpa', 'Staff', 'Abhijit Das']);
+  assert.strictEqual(JSON.stringify(p).includes(inv.person.id), false);
+  assert.strictEqual(env.call({ action: 'join', invite: inv.code, password: 'tashi-password-1' }).ok, true);
+  assert.strictEqual(env.call({ action: 'invitePreview', invite: inv.code }).code, 'badInvite');
+  assert.strictEqual(env.call({ action: 'invitePreview', invite: 'AAAA-BBBB-CCCC' }).code, 'badInvite');
+});
+
 test('invite: expires after 7 days, a new invite replaces the old, wrong codes are refused', () => {
   const env = fresh();
   const first = env.call({ action: 'invite', session: env.ownerSession, name: 'Tashi Sherpa', role: 'Staff' });
@@ -486,6 +497,28 @@ test('a new record must name the person pushing it as its author; the script sta
   assert.strictEqual(ok.accepted.Treks, 1);
   const t = byId(lines(pull(env, env.ownerSession), 'Treks'), 'A');
   assert.deepStrictEqual([t.createdBy, t.updatedBy], [mgr.id, mgr.id]);
+});
+
+test('an Owner restoring a backup may bring in records by other known people; a Manager may not', () => {
+  const env = fresh();
+  const mgr = addPerson(env, 'Meera Paul', 'Manager');
+  const rec = trek('A', 'Restored', 1, { createdBy: mgr.id });
+  const asMgr2 = addPerson(env, 'Karan Bose', 'Manager');
+  assert.strictEqual(push(env, asMgr2.session, [table('Treks', treksH, [trekRow(rec)])]).accepted.Treks, 0);
+  assert.strictEqual(push(env, env.ownerSession, [table('Treks', treksH, [trekRow(rec)])]).accepted.Treks, 1);
+  const t = byId(lines(pull(env, env.ownerSession), 'Treks'), 'A');
+  assert.deepStrictEqual([t.createdBy, t.updatedBy], [mgr.id, env.ownerId]);
+  const unknown = push(env, env.ownerSession, [table('Treks', treksH, [trekRow(trek('B', 'x', 1, { createdBy: 'FFFFFFFF-0000-4000-8000-000000000000' }))])]);
+  assert.strictEqual(unknown.accepted.Treks, 0);
+});
+
+test('person ids are matched without regard to case', () => {
+  const env = fresh();
+  const staff = addPerson(env, 'Rohit Sharma', 'Staff');
+  const own = { id: 'B2', travellers: ['A'], updatedAt: at(1), createdBy: staff.id.toLowerCase() };
+  assert.strictEqual(push(env, staff.session, [table('Bookings', bookingsH, [bookingRow(own)])]).accepted.Bookings, 1);
+  assert.strictEqual(push(env, staff.session, [table('Bookings', bookingsH, [bookingRow({ ...own, payment: 'Paid', updatedAt: at(2) })])]).accepted.Bookings, 1);
+  assert.strictEqual(byId(lines(pull(env, env.ownerSession), 'Bookings'), 'B2').createdBy, staff.id);
 });
 
 test('editing keeps the original author and sets the editor; a forged createdBy on an edit is ignored', () => {

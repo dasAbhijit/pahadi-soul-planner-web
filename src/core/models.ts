@@ -5,6 +5,9 @@ export interface SyncFields {
   id: Id;
   updatedAt?: Instant;
   deletedAt?: Instant;
+  /** The person who made the record and the person who last changed it. Records from before sign-in have neither. */
+  createdBy?: Id;
+  updatedBy?: Id;
 }
 
 // ---------------------------------------------------------------- Treks
@@ -43,7 +46,7 @@ export function trekTiming(t: Trek, now: Date = new Date()): TrekTiming {
 /** A copy for a repeat run: new id and date, same price, duration and notes. Seats are cleared. */
 export function duplicatedTrek(t: Trek, startingOn: Instant | undefined): Trek {
   const c: Trek = { ...t, id: newId(), startDate: startingOn };
-  delete c.seatsLeft; delete c.seatCapacity; delete c.updatedAt; delete c.deletedAt;
+  delete c.seatsLeft; delete c.seatCapacity; delete c.updatedAt; delete c.deletedAt; delete c.createdBy; delete c.updatedBy;
   return c;
 }
 

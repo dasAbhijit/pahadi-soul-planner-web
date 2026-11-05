@@ -63,10 +63,15 @@ export class SettingsStore extends Observable {
     this.update({ dismissedDuplicates: [...next].sort() });
   }
   resetPrompt() { this.setSystemPrompt(DEFAULT_SYSTEM_PROMPT); }
+
+  /** Forgets what belongs to the company or the person when someone signs out. The sheet address and model stay. */
+  clearPersonal() {
+    this.update({ systemPrompt: undefined, lastBackupAt: undefined, lastSyncAt: undefined, dismissedDuplicates: undefined, userName: undefined });
+  }
 }
 
 /**
- * The Gemini key and the sync secret. A browser has no keychain, so they sit in this browser's own storage,
+ * The Gemini key (and the sync secret an earlier version kept; sign-in replaced it). A browser has no keychain, so they sit in this browser's own storage,
  * unencrypted and never in a backup, never in the sheet, never sent anywhere except to Google.
  */
 export class Secrets extends Observable {

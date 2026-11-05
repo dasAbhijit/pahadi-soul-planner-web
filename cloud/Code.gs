@@ -252,7 +252,7 @@ function reply_(obj) {
 // Version 2: people, sessions, roles, per-record merge
 // ======================================================================================
 
-var V2_ACTIONS_ = ['setupOwner', 'signIn', 'join', 'signOut', 'changePassword', 'people', 'invite', 'setRole',
+var V2_ACTIONS_ = ['setupOwner', 'signIn', 'join', 'invitePreview', 'signOut', 'changePassword', 'people', 'invite', 'setRole',
   'removePerson', 'resetSignIn'];
 
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -287,6 +287,7 @@ function handleV2_(body) {
     case 'setupOwner': return withLock_(function () { return setupOwner_(body); });
     case 'signIn': return withLock_(function () { return signIn_(body); });
     case 'join': return withLock_(function () { return join_(body); });
+    case 'invitePreview': return withLock_(function () { return invitePreview_(body); });
     case 'signOut': return withLock_(function () { return signOut_(body); });
     case 'pull': return withLock_(function () { return pullV2_(body); });
     case 'push': return withLock_(function () { return pushV2_(body); });
@@ -564,6 +565,22 @@ function signIn_(body) {
   return sessionReply_(p, code, persons);
 }
 
+/** Who an invite is for, so the person can check it before choosing a password. Guessing counts like a wrong join. */
+function invitePreview_(body) {
+  if (failCount_('join') >= SETUP_MAX_FAILS) return fail_('locked', 'Too many wrong invite codes. Try again in 15 minutes.');
+  var hash = inviteHash_(body.invite);
+  var persons = loadPersons_();
+  var p = null;
+  persons.forEach(function (x) { if (x.status === 'invited' && x.inviteHash && sameText_(x.inviteHash, hash)) p = x; });
+  if (!p) {
+    addFail_('join');
+    return fail_('badInvite', 'That invite is not valid. It may have been used, replaced or removed.');
+  }
+  if (Date.parse(p.inviteExpiresAt) < nowMs_()) return fail_('inviteExpired', 'That invite has expired. Ask an Owner for a new one.');
+  var by = p.createdBy ? loadPerson_(p.createdBy) : null;
+  return { ok: true, name: p.name, role: p.role, invitedBy: by ? by.name : '', expiresAt: p.inviteExpiresAt };
+}
+
 function join_(body) {
   if (failCount_('join') >= SETUP_MAX_FAILS) return fail_('locked', 'Too many wrong invite codes. Try again in 15 minutes.');
   var hash = inviteHash_(body.invite);
@@ -635,7 +652,7 @@ function countRecordedBy_() {
       var o = parseLine_(line);
       if (!o || o.deletedAt || !o.createdBy) return;
       if (pair[0] === 'Money' && o.kind !== 'Money in') return;
-      var c = counts[o.createdBy] || (counts[o.createdBy] = { payments: 0, bookings: 0 });
+      var c = counts[up_(o.createdBy)] || (counts[up_(o.createdBy)] = { payments: 0, bookings: 0 });
       c[pair[1]]++;
     });
   });
@@ -806,7 +823,8 @@ function changedAtOf_(o) {
   return isNaN(t) ? -Infinity : t;
 }
 
-function sameId_(a, b) { return String(a).toUpperCase() === String(b).toUpperCase(); }
+function up_(id) { return id === undefined || id === null ? '' : String(id).toUpperCase(); }
+function sameId_(a, b) { return up_(a) === up_(b); }
 
 /** Why this person may not write this record, or null. `existing` is the record in the sheet, if any. */
 function roleRefusal_(person, table, incoming, existing) {
@@ -815,11 +833,11 @@ function roleRefusal_(person, table, incoming, existing) {
   if (incoming.deletedAt) return 'Your role cannot delete records.';
   if (table === 'Bookings') {
     if (incoming.cancelledAt && !(existing && existing.cancelledAt)) return 'Your role cannot cancel bookings.';
-    if (existing && existing.createdBy !== person.id) return 'You can only change bookings you added.';
+    if (existing && !sameId_(existing.createdBy, person.id)) return 'You can only change bookings you added.';
     return null;
   }
   if (incoming.kind !== 'Money in') return 'Your role can only record payments received.';
-  if (existing && (existing.kind !== 'Money in' || existing.createdBy !== person.id)) {
+  if (existing && (existing.kind !== 'Money in' || !sameId_(existing.createdBy, person.id))) {
     return 'You can only change payments you recorded.';
   }
   return null;
@@ -859,7 +877,7 @@ function pushV2_(body) {
   validateTables_(tables);
   var person = a.person;
   var names = {};
-  loadPersons_().forEach(function (p) { names[p.id] = p.name; });
+  loadPersons_().forEach(function (p) { names[up_(p.id)] = p.name; });
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   var accepted = {};
@@ -929,11 +947,13 @@ function mergeTable_(ss, t, person, names) {
     if (!take) return;
 
     if (take === 'new') {
-      if (o.createdBy !== undefined && o.createdBy !== person.id) {
+      // An Owner restoring a backup may bring in records written by other known people.
+      var knownAuthor = person.role === 'Owner' && names[up_(o.createdBy)] !== undefined;
+      if (o.createdBy !== undefined && !sameId_(o.createdBy, person.id) && !knownAuthor) {
         rejected.push({ table: t.name, id: o.id, reason: 'The record names someone else as its author.' });
         return;
       }
-      if (o.createdBy !== undefined) o.updatedBy = person.id; else delete o.updatedBy;
+      if (o.createdBy !== undefined) { o.createdBy = up_(o.createdBy); o.updatedBy = person.id; } else delete o.updatedBy;
     } else if (take === 'newer') {
       if (ex.createdBy !== undefined) o.createdBy = ex.createdBy; else delete o.createdBy;
       o.updatedBy = person.id;
@@ -958,8 +978,8 @@ function mergeTable_(ss, t, person, names) {
     while (cells.length < width) cells.push('');
     var cell = row[jsonCol];
     var o = typeof cell === 'string' && cell.charAt(0) === '{' ? parseLine_(cell) : null;
-    cells.push(o && o.createdBy ? (names[o.createdBy] || '') : '');
-    cells.push(o && o.updatedBy ? (names[o.updatedBy] || '') : '');
+    cells.push(o && o.createdBy ? (names[up_(o.createdBy)] || '') : '');
+    cells.push(o && o.updatedBy ? (names[up_(o.updatedBy)] || '') : '');
     return cells;
   });
   writeSheet_(sheet || ss.insertSheet(t.name), headers, out);

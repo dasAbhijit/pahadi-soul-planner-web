@@ -1,11 +1,10 @@
 import { FUTURE, FakeSheet, Phone, codeOf, failure, frozenClock, sec } from './helpers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runCloudSync, syncSummary, type CloudSyncReport } from '../src/core/cloudsync';
-import { SheetSyncClient, type TransportReply } from '../src/core/sheetsync';
+import { syncSummary, type CloudSyncReport } from '../src/core/cloudsync';
+import { buildTables } from '../src/core/sheetsync';
 import {
-  duplicateGroups, mergeData, mergeRecords, reconcileSeats, type SeatConflict,
+  duplicateGroups, emptyData, mergeData, mergeRecords, reconcileSeats, type SeatConflict,
 } from '../src/core/syncmerge';
-import { encodeRecord } from '../src/core/codec';
 import { MemoryKV } from '../src/core/storage';
 import { TrekStore, seedTreks } from '../src/core/stores';
 import { SettingsStore } from '../src/core/settings';
@@ -356,7 +355,7 @@ describe('whole syncs', () => {
 
     expect(new Set(a.ledger.entries.map((e) => e.amount))).toEqual(new Set([5000, 7000]));
     expect(new Set(b.ledger.entries.map((e) => e.amount))).toEqual(new Set([5000, 7000]));
-    expect(sheet.tables.Money?.length).toBe(2);
+    expect(sheet.lines('Money').length).toBe(2);
     expect(a.ledger.balance).toBe(12000);
     expect(b.ledger.balance).toBe(12000);
   });
@@ -426,7 +425,7 @@ describe('whole syncs', () => {
     await b.sync(sheet);
     expect(b.ledger.entries).toEqual([]);
     expect(b.ledger.balance).toBe(0);
-    expect(sheet.tables.Money?.length).toBe(1); // the sheet keeps the tombstone, so late phones learn of it
+    expect(sheet.lines('Money').length).toBe(1); // the sheet keeps the tombstone, so late phones learn of it
   });
 
   it('flag the same payment typed on two phones, and let "keep all" silence it', async () => {
@@ -443,59 +442,58 @@ describe('whole syncs', () => {
     expect(syncSummary(report)).toContain('1 possible duplicate payment to review');
     expect(b.ledger.entries.length).toBe(2); // flagged, never removed
     const dismissed = new Set(duplicateGroups(b.ledger.entries).map((g) => g.id));
-    expect((await b.sync(sheet, 'Asha', dismissed)).duplicates).toBe(0);
+    expect((await b.sync(sheet, dismissed)).duplicates).toBe(0);
   });
 
-  it('cost nothing when someone syncs between my read and my write', async () => {
+  it('keep both when someone syncs between my read and my write, with no retry needed', async () => {
     const sheet = new FakeSheet(), a = new Phone(), b = new Phone();
     const { t, b: bk } = setUpTrek(a);
     await a.sync(sheet);
     await b.sync(sheet);
+    const manager = sheet.addPerson('Meera Paul', 'Manager');
     const theirs = makeEntry({
       date: FUTURE, kind: 'Money in', amount: 9999, bookingID: bk.id, customerName: 'Asha Rao',
-      shares: [{ trekID: t.id, trekName: t.name, amount: 9999 }], updatedAt: at(2_000_000),
+      shares: [{ trekID: t.id, trekName: t.name, amount: 9999 }], updatedAt: at(2_000_000), createdBy: manager.id,
     });
     sheet.sneak = () => { // another phone's push lands after my pull
-      (sheet.tables.Money ??= []).push(encodeRecord(theirs));
-      sheet.version += 1;
+      const r = sheet.env.call({
+        action: 'push', session: manager.session,
+        tables: buildTables({ ...emptyData(), ledger: [theirs] }).filter((x) => x.rows.length > 0),
+      });
+      expect(r.ok).toBe(true);
     };
     b.pay(5000, t, bk);
-    const report = await b.sync(sheet); // refused once, then pulls again and merges
+    const report = await b.sync(sheet); // one pull, one push: the sheet merges record by record
+    expect(sheet.lines('Money').length).toBe(2);
+    expect(sheet.actions.slice(-2)).toEqual(['pull', 'push']);
+    expect(report.sent).toBe(1);
+    await b.sync(sheet);
     expect(new Set(b.ledger.entries.map((e) => e.amount))).toEqual(new Set([5000, 9999]));
-    expect(sheet.tables.Money?.length).toBe(2);
-    expect(sheet.actions.slice(-4)).toEqual(['pull', 'push', 'pull', 'push']);
-    expect(report.received).toBe(1);
   });
 
-  it('give up after three tries without losing anything when the sheet keeps changing', async () => {
+  it('only send the records that are not in the sheet yet', async () => {
     const sheet = new FakeSheet(), a = new Phone();
-    a.treks.upsert(trek());
-    const busy = new SheetSyncClient(async (url, body): Promise<TransportReply> => {
-      if (JSON.parse(body).action === 'push') sheet.version += 1; // someone always gets in first
-      return sheet.post(url, body);
-    });
-    const e = await failure(runCloudSync({
-      client: busy, address: 'https://script.google.com/macros/s/x/exec', token: 's', user: 'Asha', device: 'Web',
-      treks: a.treks, bookings: a.bookings, ledger: a.ledger, vendors: a.vendors, guidance: a.guidance,
-    }));
-    expect(codeOf(e)).toBe('busy');
-    expect(a.treks.treks.length).toBe(1);
-    expect(sheet.actions.filter((x) => x === 'push').length).toBe(3);
+    const { t, b: bk } = setUpTrek(a);
+    a.pay(5000, t, bk);
+    const first = await a.sync(sheet);
+    expect(first.sent).toBe(3); // trek, booking, payment
+    a.pay(700, t, bk, at(1_800_100_000));
+    const second = await a.sync(sheet);
+    expect(second.sent).toBe(1);
+    expect(second.written).toEqual({ Money: 1 });
   });
 
   it('stop on a row the app cannot read and change nothing', async () => {
     const sheet = new FakeSheet(), a = new Phone();
     const { t, b: bk } = setUpTrek(a);
     a.pay(5000, t, bk);
-    sheet.tables.Money = ['{"id":"not-a-uuid","future":true}'];
-    sheet.version = 4;
+    sheet.putRaw('Money', ['{"id":"not-a-uuid","future":true}']);
     const before = a.ledger.entries;
     const e = await failure(a.sync(sheet));
     expect(codeOf(e)).toBe('unreadableRows');
     expect((e as Error).message).toContain('1 row this app can');
     expect(a.ledger.entries).toEqual(before);
-    expect(sheet.version).toBe(4); // nothing pushed
-    expect(sheet.actions).not.toContain('push');
+    expect(sheet.actions).not.toContain('push'); // nothing pushed
   });
 
   it('do not let a reinstalled phone with only the starter trek overwrite the sheet', async () => {
@@ -508,14 +506,6 @@ describe('whole syncs', () => {
     expect(fresh.treks.treks.map((x) => x.name)).toEqual(['Gorkhey (real details)']);
     await a.sync(sheet);
     expect(a.treks.treks.map((x) => x.name)).toEqual(['Gorkhey (real details)']);
-  });
-
-  it('need a name and touch nothing without one', async () => {
-    const sheet = new FakeSheet(), a = new Phone();
-    a.treks.upsert(trek());
-    const e = await failure(a.sync(sheet, '  '));
-    expect(codeOf(e)).toBe('nameRequired');
-    expect(sheet.actions).toEqual([]);
   });
 
   it('have nothing to sync when both are empty', async () => {
@@ -554,7 +544,7 @@ describe('whole syncs', () => {
   });
 
   it('read a sync report in plain words', () => {
-    const r: CloudSyncReport = { received: 3, sent: 2, duplicates: 2, overbooked: [], written: {} };
+    const r: CloudSyncReport = { received: 3, sent: 2, duplicates: 2, overbooked: [], written: {}, refused: [], person: { id: 'X', name: 'Asha', role: 'Owner' }, directory: [] };
     expect(syncSummary(r)).toBe('Synced: took 3 new or changed from others, sent 2. 2 possible duplicate payments to review in Money.');
   });
 });

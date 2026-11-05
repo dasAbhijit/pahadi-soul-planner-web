@@ -3,7 +3,7 @@ import { same } from './codec';
 import { parseBooking, parseEntry, parseRule, parseTrek, parseVendor } from './codec';
 import { type Id, type Instant, addDays, ms, newId, startOfDay, toInstant } from './ids';
 import { JsonListFile, Observable, type KV } from './storage';
-import { SyncClock, SyncList } from './syncrecord';
+import { SyncClock, SyncList, stampRecord } from './syncrecord';
 import { reconcileSeats, seatsBooked, type SeatConflict } from './syncmerge';
 import {
   MAX_TAGS, amountIn, duplicatedTrek, isCancelled, isGeneral, makeBooking, makeEntry, makeRule, partySize, signedAmount, trekTiming,
@@ -53,9 +53,18 @@ abstract class RecordStore<T extends SyncFields> extends Observable {
 
   protected find(id: Id): T | undefined { return this.liveList.find((r) => r.id === id); }
 
+  /** A record by id, live or deleted. */
+  protected findAny(id: Id): T | undefined { return this.find(id) ?? this.deletedList.find((r) => r.id === id); }
+
   protected put(rec: T) {
     const i = this.liveList.findIndex((r) => r.id === rec.id);
     this.set(i >= 0 ? this.liveList.map((r, j) => (j === i ? rec : r)) : [...this.liveList, rec]);
+  }
+
+  /** Empties the store without leaving deletions behind. Used when someone signs out: the records belong to the sheet. */
+  clearAll() {
+    this.deletedList = [];
+    this.set([]);
   }
 
   /** Swaps in a whole list (used when restoring a backup). Records missing from it are marked deleted. */
@@ -102,7 +111,17 @@ export class TrekStore extends RecordStore<Trek> {
   get treks(): Trek[] { return this.liveList; }
   trek(id: Id): Trek | undefined { return this.find(id); }
 
-  upsert(trek: Trek) { this.put({ ...trek, updatedAt: SyncClock.now(), deletedAt: undefined }); }
+  upsert(trek: Trek) { this.put(stampRecord(trek, this.findAny(trek.id))); }
+
+  /**
+   * Removes the starter trek if it is all the phone has and nobody has touched it. Called at sign-in: a signed-in
+   * phone shows the company's treks, not a placeholder.
+   */
+  dropPlaceholder() {
+    const seed = seedTreks()[0];
+    const only = this.syncRecords.length === 1 ? this.syncRecords[0] : undefined;
+    if (only && only.id === seed.id && only.updatedAt === seed.updatedAt && only.deletedAt === undefined) this.clearAll();
+  }
 
   delete(ids: Iterable<Id>) { this.removeIds(new Set(ids)); }
 
@@ -127,10 +146,10 @@ export class TrekStore extends RecordStore<Trek> {
     const t = this.find(id);
     if (!t || t.seatsLeft === undefined) return null;
     const next = Math.max(0, t.seatsLeft + by);
-    const updated: Trek = {
-      ...t, seatsLeft: next, updatedAt: SyncClock.now(),
+    const updated: Trek = stampRecord({
+      ...t, seatsLeft: next,
       seatCapacity: t.seatCapacity === undefined ? undefined : Math.max(0, t.seatCapacity + (next - t.seatsLeft)),
-    };
+    }, t);
     if (updated.seatCapacity === undefined) delete updated.seatCapacity;
     this.set(this.liveList.map((x) => (x.id === id ? updated : x)));
     return updated.seatsLeft ?? null;
@@ -139,7 +158,7 @@ export class TrekStore extends RecordStore<Trek> {
   duplicate(id: Id, startingOn: Instant | undefined): Trek | null {
     const source = this.find(id);
     if (!source) return null;
-    const copy = { ...duplicatedTrek(source, startingOn), updatedAt: SyncClock.now() };
+    const copy = stampRecord(duplicatedTrek(source, startingOn), undefined);
     this.set([...this.liveList, copy]);
     return copy;
   }
@@ -218,10 +237,10 @@ export class BookingStore extends RecordStore<Booking> {
     const status = o.payment ?? LedgerStore.summary(trek.pricePerPerson !== undefined ? trek.pricePerPerson * names.length : undefined, o.amountReceived ?? 0).status;
 
     o.trekStore.adjustSeats(o.trekID, -names.length); // no-op when seats aren't tracked
-    const booking = makeBooking({
+    const booking = stampRecord(makeBooking({
       id: bookingID, trekID: o.trekID, travellers: names, phone: o.phone.trim(), payment: status, amountReceived: o.amountReceived,
-      createdAt: created, updatedAt: SyncClock.now(),
-    });
+      createdAt: created,
+    }), undefined);
     if (booking.amountReceived === undefined) delete booking.amountReceived;
     this.set([...this.liveList, booking]);
     if (receipt) { try { o.ledger?.add(receipt); } catch { /* the booking stands even if the receipt is refused */ } }
@@ -232,7 +251,7 @@ export class BookingStore extends RecordStore<Booking> {
   cancel(id: Id, trekStore: TrekStore, now = new Date()) {
     const b = this.find(id);
     if (!b || isCancelled(b)) return;
-    const cancelled = { ...b, cancelledAt: toInstant(now), updatedAt: SyncClock.now() };
+    const cancelled = stampRecord({ ...b, cancelledAt: toInstant(now) }, b);
     this.set(this.liveList.map((x) => (x.id === id ? cancelled : x)));
     trekStore.adjustSeats(cancelled.trekID, partySize(cancelled));
   }
@@ -380,7 +399,7 @@ export class LedgerStore extends RecordStore<LedgerEntry> {
   // ---- Changes
 
   add(entry: LedgerEntry): LedgerEntry {
-    const clean = { ...tidy(entry), updatedAt: SyncClock.now(), deletedAt: undefined };
+    const clean = stampRecord(tidy(entry), this.findAny(entry.id));
     LedgerStore.validate(clean);
     this.set([...this.liveList, clean]);
     return clean;
@@ -389,14 +408,14 @@ export class LedgerStore extends RecordStore<LedgerEntry> {
   /** Adds several entries, or none if any one is invalid (used to split one cost across trips). */
   addAll(list: LedgerEntry[]): LedgerEntry[] {
     const now = SyncClock.now();
-    const clean = list.map((e) => ({ ...tidy(e), updatedAt: now, deletedAt: undefined }));
+    const clean = list.map((e) => stampRecord(tidy(e), this.findAny(e.id), now));
     clean.forEach(LedgerStore.validate);
     this.set([...this.liveList, ...clean]);
     return clean;
   }
 
   update(entry: LedgerEntry) {
-    const clean = { ...tidy(entry), updatedAt: SyncClock.now(), deletedAt: undefined };
+    const clean = stampRecord(tidy(entry), this.findAny(entry.id));
     LedgerStore.validate(clean);
     if (!this.liveList.some((e) => e.id === clean.id)) return;
     this.set(this.liveList.map((e) => (e.id === clean.id ? clean : e)));
@@ -433,7 +452,7 @@ export class VendorStore extends RecordStore<Vendor> {
   upsert(vendor: Vendor): Vendor {
     const v: Vendor = {
       ...vendor, name: vendor.name.trim(), contactName: vendor.contactName.trim(), phone: vendor.phone.trim(),
-      notes: vendor.notes.trim(), tags: vendor.tags.slice(0, MAX_TAGS), updatedAt: SyncClock.now(), deletedAt: undefined,
+      notes: vendor.notes.trim(), tags: vendor.tags.slice(0, MAX_TAGS),
     };
     if (v.name === '') throw new AppError('missingName', "Enter the vendor's name.");
     if (v.rate !== undefined && v.rate <= 0) throw new AppError('badRate', 'The rate must be a positive number.');
@@ -441,8 +460,9 @@ export class VendorStore extends RecordStore<Vendor> {
     if (new Set(v.agreements.map((a) => a.trekID)).size !== v.agreements.length) throw new AppError('duplicateTrip', 'The same trip is listed twice.');
     const clash = this.liveList.some((x) => x.id !== v.id && x.service === v.service && x.name.toLowerCase() === v.name.toLowerCase());
     if (clash) throw new AppError('duplicateName', 'A vendor with this name and service already exists.');
-    this.put(v);
-    return v;
+    const stamped = stampRecord(v, this.findAny(v.id));
+    this.put(stamped);
+    return stamped;
   }
 
   /** Deleting a vendor keeps their past payments in the ledger, which hold a copy of the name. */
@@ -490,6 +510,11 @@ export class GuidanceStore extends RecordStore<GuidanceRule> {
   }
 
   remove(id: Id) { this.commit(this.liveList.filter((r) => r.id !== id)); }
+
+  override clearAll() {
+    this.undoStack = [];
+    super.clearAll();
+  }
 
   /** Swaps in a whole list (used when restoring a backup). Can be undone like any other change. */
   override replaceAll(list: GuidanceRule[]) { this.commit(list.slice(0, MAX_RULES)); }

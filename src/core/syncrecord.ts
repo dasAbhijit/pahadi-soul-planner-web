@@ -13,6 +13,28 @@ export const SyncClock = {
   now(): Instant { return toInstant(Math.floor(this.provider() / 1000) * 1000); },
 };
 
+/**
+ * The signed-in person, set by the app. Stores stamp every record they make or change with this id, so the
+ * app can show who recorded what. Unset when nobody is signed in (tests, or before the first sign-in).
+ */
+export const Actor: { id: Id | undefined } = { id: undefined };
+
+/**
+ * Stamps a record as made or changed now by the signed-in person. `old` is the stored version, if there is one:
+ * an existing record keeps its author, a new one gets the signed-in person as its author.
+ */
+export function stampRecord<T extends SyncFields>(rec: T, old: T | undefined, now: Instant = SyncClock.now()): T {
+  const out: T = { ...rec, updatedAt: now };
+  delete out.deletedAt;
+  const who = Actor.id;
+  if (who) {
+    out.updatedBy = who;
+    if (old) { if (old.createdBy) out.createdBy = old.createdBy; else delete out.createdBy; }
+    else if (!out.createdBy) out.createdBy = who;
+  }
+  return out;
+}
+
 /** How the stores keep live and deleted records side by side. */
 export const SyncList = {
   split<T extends SyncFields>(all: T[]): { live: T[]; deleted: T[] } {
@@ -32,6 +54,7 @@ export const SyncList = {
     for (const r of live) {
       if (ids.has(r.id)) {
         const t = { ...r, updatedAt: now, deletedAt: now };
+        if (Actor.id) t.updatedBy = Actor.id;
         gone = [...gone.filter((x) => x.id !== t.id), t];
       } else keep.push(r);
     }
@@ -56,11 +79,16 @@ export const SyncList = {
         if (old.updatedAt === undefined) delete probe.updatedAt; else probe.updatedAt = old.updatedAt;
         if (same(probe, old)) { outLive.push(old); continue; }
       }
-      outLive.push({ ...r, updatedAt: now });
+      outLive.push(stampRecord(r, old, now));
     }
 
     const outDeleted = deleted.filter((r) => !newIDs.has(r.id));
-    for (const old of live) if (!newIDs.has(old.id)) outDeleted.push({ ...old, updatedAt: now, deletedAt: now });
+    for (const old of live) {
+      if (newIDs.has(old.id)) continue;
+      const t = { ...old, updatedAt: now, deletedAt: now };
+      if (Actor.id) t.updatedBy = Actor.id;
+      outDeleted.push(t);
+    }
     return { live: outLive, deleted: outDeleted };
   },
 };

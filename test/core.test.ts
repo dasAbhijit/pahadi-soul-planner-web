@@ -602,9 +602,9 @@ describe('backup', () => {
       makeEntry({ date: date(2026, 11, 3), kind: 'Money in', amount: 5000, mode: 'UPI', bookingID: newId(), customerName: '=cmd|calc', shares: [{ trekID: a, trekName: 'Gorkhey', amount: 5000 }] }),
     ];
     const lines = ledgerCsv(entries).split('\r\n');
-    expect(lines[0]).toBe('Date,Type,Amount (INR),Trip,Traveller,Vendor,Paid by,Note');
-    expect(lines[1]).toBe("2026-11-03,Money in,5000,Gorkhey,'=cmd|calc,,UPI,"); // oldest first, formula neutralised
-    expect(lines[2]).toBe('2026-11-05,Money out,1500,Gorkhey,,Dorje,Cash,"Guide, ""Dorje"" advance"');
+    expect(lines[0]).toBe('Date,Type,Amount (INR),Trip,Traveller,Vendor,Paid by,Note,Recorded by');
+    expect(lines[1]).toBe("2026-11-03,Money in,5000,Gorkhey,'=cmd|calc,,UPI,,"); // oldest first, formula neutralised
+    expect(lines[2]).toBe('2026-11-05,Money out,1500,Gorkhey,,Dorje,Cash,"Guide, ""Dorje"" advance",');
     expect(lines.length).toBe(4);
   });
 });

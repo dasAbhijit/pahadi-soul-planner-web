@@ -72,6 +72,21 @@ export function mergeData(local: SyncData, remote: SyncData): { data: SyncData; 
   return { data: { ...data, treks }, report: { received, sent, overbooked: conflicts } };
 }
 
+/**
+ * The records of `merged` that the sheet does not hold in this exact form: ones it lacks, or holds an older version of,
+ * or whose seats left was recomputed. These are the only records a sync sends.
+ */
+export function changedFrom(merged: SyncData, remote: SyncData): SyncData {
+  const pick = <T extends SyncFields>(m: T[], r: T[]): T[] => {
+    const byID = new Map<Id, T>(r.map((x) => [x.id, x]));
+    return m.filter((x) => { const o = byID.get(x.id); return o === undefined || !same(x, o); });
+  };
+  return {
+    treks: pick(merged.treks, remote.treks), bookings: pick(merged.bookings, remote.bookings), ledger: pick(merged.ledger, remote.ledger),
+    vendors: pick(merged.vendors, remote.vendors), guidance: pick(merged.guidance, remote.guidance),
+  };
+}
+
 /** Seats taken by bookings that are neither cancelled nor deleted. */
 export function seatsBooked(trekID: Id, bookings: Booking[]): number {
   return bookings.filter((b) => b.trekID === trekID && !isCancelled(b) && !isDeleted(b)).reduce((s, b) => s + partySize(b), 0);

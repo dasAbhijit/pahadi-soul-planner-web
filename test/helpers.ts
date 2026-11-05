@@ -2,6 +2,7 @@
 // Must run before any Date is used, so every test file imports this one first.
 (globalThis as unknown as { process: { env: Record<string, string> } }).process.env.TZ = 'Asia/Kolkata';
 
+import { createRequire } from 'node:module';
 import { AppError } from '../src/core/errors';
 import { runCloudSync, type CloudSyncReport } from '../src/core/cloudsync';
 import { toInstant, type Id, type Instant } from '../src/core/ids';
@@ -9,7 +10,7 @@ import { MemoryKV } from '../src/core/storage';
 import {
   SheetSyncClient, SheetSyncError, type TransportReply,
 } from '../src/core/sheetsync';
-import { SyncClock } from '../src/core/syncrecord';
+import { Actor, SyncClock } from '../src/core/syncrecord';
 import { BookingStore, GuidanceStore, LedgerStore, TrekStore, VendorStore } from '../src/core/stores';
 import { SettingsStore } from '../src/core/settings';
 import {
@@ -56,43 +57,63 @@ export function frozenClock(startSeconds = 1_000_000) {
   return clock;
 }
 
-// ------------------------------------------------------------------ A simulated sheet and phones
+// ------------------------------------------------------------------ The real sheet script and simulated phones
 
-/** Plays the Apps Script: stores JSON lines per tab and a version, refuses a push based on an old version. */
+// The tests run the real cloud/Code.gs against a fake of Google's classes, so the app and the script are tested together.
+const requireNode = createRequire(import.meta.url);
+const { makeEnv } = requireNode('../cloud/fake-google.js') as { makeEnv: (token?: string) => ScriptEnv };
+
+interface ScriptEnv {
+  call: (body: unknown) => Record<string, unknown>;
+  sheets: Record<string, { grid: unknown[][] }>;
+  ctx: { SpreadsheetApp: { getActiveSpreadsheet: () => { insertSheet: (n: string) => { grid: unknown[][] } } } };
+  advance: (ms: number) => void;
+  props: Record<string, string>;
+}
+
+export const SETUP_CODE = 'setup-code-0123456789';
+export const PASSWORD = 'correct horse battery';
+
+export interface Login { session: string; id: Id; name: string; role: 'Owner' | 'Manager' | 'Staff' }
+
+/** Plays the sheet: the real Code.gs, with a first Owner created. */
 export class FakeSheet {
-  version = 0;
-  tables: Record<string, string[]> = {};
-  token = 's';
+  env = makeEnv(SETUP_CODE);
   actions: string[] = [];
-  /** Runs once, just before the next push is checked: stands in for someone else syncing in between. */
+  /** Runs once, just before the next push reaches the script: stands in for someone else syncing in between. */
   sneak: (() => void) | null = null;
-  client = new SheetSyncClient((url, body) => this.post(url, body));
-
-  private reply(o: unknown): TransportReply { return { status: 200, body: JSON.stringify(o) }; }
-
-  async post(_url: string, body: string): Promise<TransportReply> {
-    const req = JSON.parse(body);
-    if (req.token !== this.token) return this.reply({ ok: false, error: 'Wrong secret code.' });
-    const action: string = req.action;
+  owner: Login;
+  client = new SheetSyncClient(async (_url, body): Promise<TransportReply> => {
+    const action: string = JSON.parse(body).action;
     this.actions.push(action);
-    switch (action) {
-      case 'pull': return this.reply({ ok: true, version: this.version, tables: this.tables });
-      case 'push': {
-        if (this.sneak) { const f = this.sneak; this.sneak = null; f(); }
-        if (req.baseVersion !== this.version) return this.reply({ ok: false, code: 'conflict', error: 'changed' });
-        const written: Record<string, number> = {};
-        for (const t of req.tables as { name: string; headers: string[]; rows: string[][] }[]) {
-          const col = t.headers.indexOf('Record (JSON)');
-          const lines = t.rows.map((r) => r[col]);
-          if (lines.length === 0 && (this.tables[t.name]?.length ?? 0) > 0) continue;
-          this.tables[t.name] = lines;
-          written[t.name] = lines.length;
-        }
-        this.version += 1;
-        return this.reply({ ok: true, written, keptAsIs: [], version: this.version });
-      }
-      default: return this.reply({ ok: true });
-    }
+    if (action === 'push' && this.sneak) { const f = this.sneak; this.sneak = null; f(); }
+    return { status: 200, body: JSON.stringify(this.env.call(body)) };
+  });
+
+  constructor() {
+    const r = this.env.call({ action: 'setupOwner', token: SETUP_CODE, name: 'Asha Rao', password: PASSWORD, device: 'Test' }) as
+      { session: string; person: { id: Id } };
+    this.owner = { session: r.session, id: r.person.id, name: 'Asha Rao', role: 'Owner' };
+  }
+
+  /** Invites a person and has them join. */
+  addPerson(name: string, role: Login['role']): Login {
+    const inv = this.env.call({ action: 'invite', session: this.owner.session, name, role }) as { code: string };
+    const j = this.env.call({ action: 'join', invite: inv.code, password: 'a-good-password-1', device: 'Test' }) as { session: string; person: { id: Id } };
+    return { session: j.session, id: j.person.id, name, role };
+  }
+
+  /** The record lines of one tab, as stored in the sheet. */
+  lines(tab: string): string[] {
+    const grid = this.env.sheets[tab]?.grid ?? [];
+    const col = (grid[0] ?? []).indexOf('Record (JSON)');
+    return grid.slice(1).map((r) => String(r[col])).filter((c) => c.startsWith('{'));
+  }
+
+  /** Puts raw rows into a tab, the way a person (or a newer app) could. */
+  putRaw(tab: string, jsonLines: string[]) {
+    const sheet = this.env.sheets[tab] ?? this.env.ctx.SpreadsheetApp.getActiveSpreadsheet().insertSheet(tab);
+    sheet.grid = [['Id', 'Record (JSON)'], ...jsonLines.map((l, i) => [String(i), l])];
   }
 }
 
@@ -105,6 +126,8 @@ export class Phone {
   vendors: VendorStore;
   guidance: GuidanceStore;
   settings: SettingsStore;
+  /** Who is signed in on this phone. Defaults to the sheet's first Owner. */
+  login: Login | null = null;
 
   constructor(seed: () => Trek[] = () => []) {
     this.treks = new TrekStore(this.kv, seed);
@@ -115,9 +138,13 @@ export class Phone {
     this.settings = new SettingsStore(this.kv);
   }
 
-  sync(sheet: FakeSheet, user = 'Asha', dismissed: Set<string> = new Set()): Promise<CloudSyncReport> {
+  /** Makes this phone's person the one the stores stamp as author. */
+  as(login: Login): this { this.login = login; Actor.id = login.id; return this; }
+
+  sync(sheet: FakeSheet, dismissed: Set<string> = new Set()): Promise<CloudSyncReport> {
+    const who = this.login ?? sheet.owner;
     return runCloudSync({
-      client: sheet.client, address: 'https://script.google.com/macros/s/x/exec', token: 's', user, device: 'Android',
+      client: sheet.client, address: 'https://script.google.com/macros/s/x/exec', session: who.session, device: 'Android',
       treks: this.treks, bookings: this.bookings, ledger: this.ledger, vendors: this.vendors, guidance: this.guidance,
       dismissedDuplicates: dismissed,
     });

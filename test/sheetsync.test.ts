@@ -1,7 +1,7 @@
 import { ADDRESS, at, codeOf, failure, sec } from './helpers';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
-  SheetSyncClient, SheetSyncError, buildTables, cleanName, describeTables, fetchTransport, rowCount, validateAddress,
+  SheetSyncClient, SheetSyncError, buildTables, cleanName, describeTables, fetchTransport, inviteText, parseInvite, rowCount, validateAddress,
   type SheetCell, type SheetTable, type TransportReply,
 } from '../src/core/sheetsync';
 import { decodeTables, mergeData, emptyData, recordCount } from '../src/core/syncmerge';
@@ -173,54 +173,56 @@ function clientFor(json: string, status = 200, rec = new Recorder()) {
 
 const sentBody = (rec: Recorder, i = 0) => JSON.parse(rec.calls[i].body);
 
+const SESSION_REPLY = '"session":"S3SS10N","person":{"id":"AAAAAAAA-0000-4000-8000-000000000001","name":"Meera Paul","role":"Manager"},"directory":[{"id":"AAAAAAAA-0000-4000-8000-000000000001","name":"Meera Paul"}],"spreadsheet":"Pahadi Soul Planner App"';
+
 describe('client', () => {
-  it('pushes one POST with the secret, name and every table', async () => {
+  it('pushes one POST with the session and only the tables it is given', async () => {
     const rec = new Recorder();
-    const c = clientFor('{"ok":true,"written":{"Treks":2,"Money":2},"keptAsIs":["Vendors"]}', 200, rec);
-    const result = await c.push(fixture(), ADDRESS, 's3cret', ' Meera ', 'Android', 7, sec(0));
-    expect(result).toEqual({ written: { Treks: 2, Money: 2 }, keptAsIs: ['Vendors'], version: 8 });
+    const c = clientFor('{"ok":true,"accepted":{"Treks":2,"Money":2},"rejected":[],"version":8}', 200, rec);
+    const result = await c.push(fixture().filter((t) => t.name === 'Treks' || t.name === 'Money'), ADDRESS, 'S3SS10N', 'Android');
+    expect(result).toEqual({ accepted: { Treks: 2, Money: 2 }, rejected: [], version: 8 });
 
     expect(rec.calls.length).toBe(1);
     expect(rec.calls[0].url).toBe(ADDRESS);
     const body = sentBody(rec);
-    expect(body.token).toBe('s3cret');
+    expect(body.session).toBe('S3SS10N');
     expect(body.action).toBe('push');
-    expect(body.baseVersion).toBe(7);
-    expect(body.user).toBe('Meera');
     expect(body.device).toBe('Android');
-    expect(body.sentAt).toBe('1970-01-01T00:00:00Z');
-    expect(body.tables.map((t: { name: string }) => t.name)).toEqual(['Treks', 'Bookings', 'Money', 'Vendors', 'Guidance']);
+    expect(body.token).toBeUndefined();
+    expect(body.baseVersion).toBeUndefined();
+    expect(body.tables.map((t: { name: string }) => t.name)).toEqual(['Treks', 'Money']);
     // Amounts travel as numbers, everything else as text.
-    const moneyRow = body.tables[2].rows[0];
+    const moneyRow = body.tables[1].rows[0];
     expect(typeof moneyRow[3]).toBe('number');
     expect(typeof moneyRow[2]).toBe('string');
   });
 
-  it('needs a name', async () => {
-    const rec = new Recorder();
-    const e = await failure(clientFor('{"ok":true}', 200, rec).push(fixture(), ADDRESS, 's', '  ', 'Android', 0));
-    expect(codeOf(e)).toBe('nameRequired');
-    expect(rec.calls).toEqual([]);
+  it('reads the records the sheet refused', async () => {
+    const c = clientFor('{"ok":true,"accepted":{"Money":0},"rejected":[{"table":"Money","id":"X","reason":"Your role can only record payments received."}],"version":3}');
+    const r = await c.push(fixture(), ADDRESS, 's', 'Android');
+    expect(r.rejected).toEqual([{ table: 'Money', id: 'X', reason: 'Your role can only record payments received.' }]);
   });
 
-  it('sends nothing when there is no data', async () => {
+  it('sends nothing when there is nothing to send', async () => {
     const rec = new Recorder();
-    const e = await failure(clientFor('{"ok":true}', 200, rec).push(buildTables(emptyData()), ADDRESS, 's', 'Meera', 'Android', 0));
-    expect(codeOf(e)).toBe('nothingToSync');
+    const r = await clientFor('{"ok":true}', 200, rec).push(buildTables(emptyData()), ADDRESS, 's', 'Android');
+    expect(r.accepted).toEqual({});
     expect(rec.calls).toEqual([]);
   });
 
   it('never calls a bad address', async () => {
     const rec = new Recorder();
-    const e = await failure(clientFor('{"ok":true}', 200, rec).push(fixture(), 'https://evil.example/exec', 's', 'Meera', 'Android', 0));
+    const e = await failure(clientFor('{"ok":true}', 200, rec).push(fixture(), 'https://evil.example/exec', 's', 'Android'));
     expect(codeOf(e)).toBe('badAddress');
+    expect(rec.calls).toEqual([]);
+    expect(codeOf(await failure(clientFor('{"ok":true}', 200, rec).signIn('https://evil.example/exec', 'A', 'secret-pass', 'Web')))).toBe('badAddress');
     expect(rec.calls).toEqual([]);
   });
 
   it('refuses a body that is too large', async () => {
     const rec = new Recorder();
     const huge = buildTables({ ...emptyData(), guidance: [makeRule('x'.repeat(16_000_000))] });
-    const e = await failure(clientFor('{"ok":true}', 200, rec).push(huge, ADDRESS, 's', 'Meera', 'Android', 0));
+    const e = await failure(clientFor('{"ok":true}', 200, rec).push(huge, ADDRESS, 's', 'Android'));
     expect(codeOf(e)).toBe('tooLarge');
     expect(rec.calls).toEqual([]);
   });
@@ -228,7 +230,7 @@ describe('client', () => {
   it('passes a transport failure through unchanged', async () => {
     const rec = new Recorder();
     rec.reply = async () => { throw new SheetSyncError('offline'); };
-    const e = await failure(new SheetSyncClient(rec.transport).push(fixture(), ADDRESS, 's', 'Meera', 'Android', 0));
+    const e = await failure(new SheetSyncClient(rec.transport).push(fixture(), ADDRESS, 's', 'Android'));
     expect(codeOf(e)).toBe('offline');
     expect((e as Error).message).toContain('safe on this phone');
   });
@@ -239,9 +241,9 @@ describe('client', () => {
   });
 
   it("shows the script's refusal as is", async () => {
-    const e = await failure(clientFor('{"ok":false,"error":"Wrong secret code."}').push(fixture(), ADDRESS, 'bad', 'Meera', 'Android', 0));
+    const e = await failure(clientFor('{"ok":false,"error":"Something odd."}').push(fixture(), ADDRESS, 'bad', 'Android'));
     expect(codeOf(e)).toBe('rejected');
-    expect((e as Error).message).toBe('Wrong secret code.');
+    expect((e as Error).message).toBe('Something odd.');
   });
 
   it('pings and returns the sheet name', async () => {
@@ -251,34 +253,109 @@ describe('client', () => {
     expect(sentBody(rec).tables).toBeUndefined();
   });
 
-  it('pulls the version and the record lines', async () => {
+  it('pulls the version, the record lines, who is asking and the names', async () => {
     const rec = new Recorder();
-    const c = clientFor('{"ok":true,"version":5,"tables":{"Treks":["{\\"a\\":1}","{\\"b\\":2}"],"Money":[]}}', 200, rec);
-    const pulled = await c.pull(ADDRESS, 's3cret');
-    expect(pulled).toEqual({ version: 5, tables: { Treks: ['{"a":1}', '{"b":2}'], Money: [] } });
-    expect(sentBody(rec).action).toBe('pull');
-    expect(sentBody(rec).token).toBe('s3cret');
-    expect(sentBody(rec).tables).toBeUndefined();
+    const c = clientFor(`{"ok":true,"version":5,"tables":{"Treks":["{\\"a\\":1}","{\\"b\\":2}"],"Money":[]},${SESSION_REPLY.replace('"session":"S3SS10N",', '')}}`, 200, rec);
+    const pulled = await c.pull(ADDRESS, 'S3SS10N', 'Web');
+    expect(pulled.version).toBe(5);
+    expect(pulled.tables).toEqual({ Treks: ['{"a":1}', '{"b":2}'], Money: [] });
+    expect(pulled.person).toEqual({ id: 'AAAAAAAA-0000-4000-8000-000000000001', name: 'Meera Paul', role: 'Manager' });
+    expect(pulled.directory).toEqual([{ id: 'AAAAAAAA-0000-4000-8000-000000000001', name: 'Meera Paul' }]);
+    expect(sentBody(rec)).toEqual({ action: 'pull', session: 'S3SS10N', device: 'Web' });
   });
 
-  it('treats a pull reply without a version as not the script', async () => {
-    const e = await failure(clientFor('{"ok":true,"tables":{}}').pull(ADDRESS, 's'));
-    expect(codeOf(e)).toBe('notTheScript');
+  it('treats a pull reply without a version or a person as not the script', async () => {
+    expect(codeOf(await failure(clientFor('{"ok":true,"tables":{}}').pull(ADDRESS, 's', 'Web')))).toBe('notTheScript');
+    expect(codeOf(await failure(clientFor('{"ok":true,"version":1,"tables":{}}').pull(ADDRESS, 's', 'Web')))).toBe('notTheScript');
   });
 
-  it("turns the sheet's conflict code into changedMeanwhile", async () => {
-    const e = await failure(clientFor('{"ok":false,"code":"conflict","error":"changed"}').push(fixture(), ADDRESS, 's', 'Meera', 'Android', 3));
-    expect(codeOf(e)).toBe('changedMeanwhile');
+  it('signs in, joins and sets up the first Owner, and reads the session and who you are', async () => {
+    const rec = new Recorder();
+    const c = clientFor(`{"ok":true,${SESSION_REPLY}}`, 200, rec);
+    const r = await c.signIn(ADDRESS, '  Meera Paul ', 'my-password-1', 'Web');
+    expect(r.session).toBe('S3SS10N');
+    expect(r.person.role).toBe('Manager');
+    expect(r.spreadsheet).toBe('Pahadi Soul Planner App');
+    expect(sentBody(rec)).toEqual({ action: 'signIn', name: 'Meera Paul', password: 'my-password-1', device: 'Web' });
+    await c.join(ADDRESS, 'K7QM-4TXR-9HZA', 'my-password-1', 'Web');
+    expect(sentBody(rec, 1)).toEqual({ action: 'join', invite: 'K7QM-4TXR-9HZA', password: 'my-password-1', device: 'Web' });
+    await c.setupOwner(ADDRESS, 'the-setup-code', 'Abhijit Das', 'my-password-1', 'Web');
+    expect(sentBody(rec, 2)).toEqual({ action: 'setupOwner', token: 'the-setup-code', name: 'Abhijit Das', password: 'my-password-1', device: 'Web' });
+  });
+
+  it('maps the sheet\'s codes to errors with the tries left and the reason a session ended', async () => {
+    const bad = (extra: string) => clientFor(`{"ok":false,${extra}}`);
+    const login = (await failure(bad('"code":"badLogin","error":"Wrong name or password.","triesLeft":3').signIn(ADDRESS, 'A', 'x-password-1', 'Web'))) as SheetSyncError;
+    expect([login.code, login.triesLeft, login.message]).toEqual(['badLogin', 3, 'Wrong name or password. 3 tries left.']);
+    const one = (await failure(bad('"code":"badLogin","triesLeft":1').signIn(ADDRESS, 'A', 'x-password-1', 'Web'))) as SheetSyncError;
+    expect(one.message).toBe('Wrong name or password. 1 try left.');
+    const ended = (await failure(bad('"code":"sessionEnded","reason":"removed","error":"An Owner removed your access."').pull(ADDRESS, 's', 'Web'))) as SheetSyncError;
+    expect([ended.code, ended.reason]).toEqual(['sessionEnded', 'removed']);
+    for (const code of ['locked', 'badInvite', 'inviteExpired', 'badSetup', 'setupDone', 'forbidden', 'updateApp', 'badRequest', 'nameTaken', 'lastOwner']) {
+      const e = await failure(bad(`"code":"${code}","error":"Words from the sheet."`).pull(ADDRESS, 's', 'Web'));
+      expect([codeOf(e), (e as Error).message]).toEqual([code, 'Words from the sheet.']);
+    }
+  });
+
+  it('knows an older script (no status action) and a sheet that needs its first Owner', async () => {
+    expect(codeOf(await failure(clientFor('{"ok":false,"error":"Wrong secret code."}').status(ADDRESS)))).toBe('scriptTooOld');
+    expect(await clientFor('{"ok":true,"v":2,"setupNeeded":true}').status(ADDRESS)).toEqual({ setupNeeded: true });
+    expect(await clientFor('{"ok":true,"v":2,"setupNeeded":false}').status(ADDRESS)).toEqual({ setupNeeded: false });
+  });
+
+  it('previews an invite and runs the Owner actions', async () => {
+    const rec = new Recorder();
+    const c = clientFor('{"ok":true,"name":"Tashi Sherpa","role":"Staff","invitedBy":"Abhijit Das","expiresAt":"2026-11-12T09:00:00Z"}', 200, rec);
+    expect(await c.previewInvite(ADDRESS, 'K7QM-4TXR-9HZA')).toEqual({ name: 'Tashi Sherpa', role: 'Staff', invitedBy: 'Abhijit Das', expiresAt: '2026-11-12T09:00:00Z' });
+    const inv = clientFor(`{"ok":true,"code":"K7QM-4TXR-9HZA","expiresAt":"2026-11-12T09:00:00Z","person":{"id":"AAAAAAAA-0000-4000-8000-000000000002","name":"Tashi Sherpa","role":"Staff"}}`, 200, rec);
+    const r = await inv.invite(ADDRESS, 'S', { name: 'Tashi Sherpa', role: 'Staff' });
+    expect([r.code, r.person.name]).toEqual(['K7QM-4TXR-9HZA', 'Tashi Sherpa']);
+    expect(sentBody(rec, 1)).toEqual({ action: 'invite', session: 'S', name: 'Tashi Sherpa', role: 'Staff' });
+    await clientFor('{"ok":true}', 200, rec).setRole(ADDRESS, 'S', 'P', 'Manager');
+    await clientFor('{"ok":true}', 200, rec).removePerson(ADDRESS, 'S', 'P');
+    expect(sentBody(rec, 2)).toEqual({ action: 'setRole', session: 'S', personId: 'P', role: 'Manager' });
+    expect(sentBody(rec, 3)).toEqual({ action: 'removePerson', session: 'S', personId: 'P' });
   });
 
   it('words the errors like the other apps', () => {
-    expect(new SheetSyncError('changedMeanwhile').message).toBe('Someone else synced at the same moment.');
-    expect(new SheetSyncError('busy').message).toBe('Others kept syncing at the same time. Nothing was lost. Try again in a minute.');
     expect(new SheetSyncError('unreadableRows', { count: 1 }).message).toBe(
       "The sheet has 1 row this app can't read, perhaps from a newer version of the app. Update the app, then sync again. Nothing was changed.");
     expect(new SheetSyncError('unreadableRows', { count: 2 }).message.startsWith('The sheet has 2 rows this app')).toBe(true);
     expect(new SheetSyncError('nothingToSync').message).toBe('There is no data in the app or the sheet yet, so there is nothing to sync.');
     expect(new SheetSyncError('network', { why: 'handshake failed' }).message).toBe("Couldn't reach Google: handshake failed");
+    expect(new SheetSyncError('scriptTooOld').message).toContain('paste the new Code.gs');
+  });
+});
+
+describe('invites', () => {
+  const code = 'K7QM-4TXR-9HZA';
+  it('carry the sheet address and the code, and read back', () => {
+    const text = inviteText(ADDRESS, code);
+    expect(text.startsWith('PSP1.')).toBe(true);
+    expect(text.endsWith('.' + code)).toBe(true);
+    expect(parseInvite(text)).toEqual({ address: ADDRESS, code });
+  });
+
+  it('are found inside a longer message, with the rest ignored', () => {
+    const text = `Hi Tashi, open the app, tap "I have an invite" and paste:\n${inviteText(ADDRESS, code)}\nThanks!`;
+    expect(parseInvite(text)).toEqual({ address: ADDRESS, code });
+  });
+
+  it('accept just the code, in any case, with or without dashes', () => {
+    expect(parseInvite('k7qm 4txr 9hza')).toEqual({ code });
+    expect(parseInvite('K7QM4TXR9HZA')).toEqual({ code });
+  });
+
+  it('refuse junk, and refuse an address that is not a Google script', () => {
+    expect(parseInvite('')).toBeNull();
+    expect(parseInvite('hello')).toBeNull();
+    expect(parseInvite('K7QM-4TXR')).toBeNull();
+    expect(parseInvite(inviteText('https://evil.example/macros/s/x/exec', code))).toEqual(null);
+  });
+
+  it('survive an address with non-ASCII characters', () => {
+    // Not a valid script address, so the address is dropped, but the code still reads.
+    expect(parseInvite(inviteText('https://script.google.com/macros/s/é/exec', code))?.code).toBeDefined();
   });
 });
 
@@ -362,11 +439,11 @@ describe('fetch transport', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     try {
       const port = server.address().port;
-      const reply = await fetchTransport(`http://127.0.0.1:${port}/macros/s/AKfy/exec`, '{"token":"s3cret","action":"ping"}');
+      const reply = await fetchTransport(`http://127.0.0.1:${port}/macros/s/AKfy/exec`, '{"session":"s3cret","action":"ping"}');
       expect(reply.status).toBe(200);
       expect(JSON.parse(reply.body).spreadsheet).toBe('Redirected Sheet');
       expect(postedType).toBe('text/plain;charset=utf-8'); // a "simple" request: no CORS preflight
-      expect(JSON.parse(postedBody).token).toBe('s3cret');
+      expect(JSON.parse(postedBody).session).toBe('s3cret');
       expect(replyMethod).toBe('GET');
     } finally {
       await new Promise((r) => server.close(r));
