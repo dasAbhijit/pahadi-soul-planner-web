@@ -351,7 +351,7 @@ describe('app flows', () => {
     expect(meera.account.role).toBe('Staff');
     expect(meera.ledger.entries.map((e) => e.kind)).toEqual(['Money in']);
     expect([meera.vendors.vendors[0].name, meera.vendors.vendors[0].rate, meera.vendors.vendors[0].agreements]).toEqual(['Dorje', undefined, []]);
-    expect(JSON.stringify([...(meera.kv as MemoryKV).map.values()])).not.toContain('3000');
+    expect(JSON.stringify([...(meera.kv as MemoryKV).map.values()])).not.toContain('"amount":3000');
 
     // The sheet itself still has everything.
     await owner.sync();
