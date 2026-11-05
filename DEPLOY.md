@@ -7,18 +7,18 @@ You need: a free GitHub account, Git on your Mac (already there), and the phones
 ## 1. Create the GitHub repository
 
 1. Sign in at github.com and choose **New repository**.
-2. Name it `pahadi-soul-planner`. Choose **Public**.
+2. Name it `pahadi-soul-planner-web`. Choose **Public**.
    - Public is required: GitHub Pages is free only for public repositories.
    - Nothing private is in the repository. It holds the app's code only. Your treks, bookings and money stay on each phone and in your Google Sheet. Your Gemini key and sheet secret are typed into the app on each phone and never go into the code. Anyone who finds the address can open the app, and they will see an empty app.
 3. Leave "Add a README" and the other boxes **unticked**. Create the repository.
 
 ## 2. Push this folder to it
 
-In Terminal (replace `YOUR-NAME` with your GitHub user name):
+In Terminal (this project lives only under the `dasAbhijit` account):
 
 ```
 cd ~/Documents/personal/pahadi_soul_travels_web
-git remote add origin https://github.com/YOUR-NAME/pahadi-soul-planner.git
+git remote add origin https://github.com/dasAbhijit/pahadi-soul-planner-web.git
 git push -u origin main
 ```
 
@@ -31,7 +31,7 @@ GitHub asks you to sign in. The easiest way is `brew install gh`, then `gh auth 
 3. Open the **Actions** tab. The workflow **Deploy to GitHub Pages** runs by itself on every push to `main`. If the first run failed because Pages was not on yet, open it and choose **Re-run all jobs**.
 4. When it shows a green tick (about 1 to 2 minutes), the site is at:
 
-   `https://YOUR-NAME.github.io/pahadi-soul-planner/`
+   `https://dasabhijit.github.io/pahadi-soul-planner-web/`
 
 The workflow runs the tests first. If a test fails, nothing is published.
 
