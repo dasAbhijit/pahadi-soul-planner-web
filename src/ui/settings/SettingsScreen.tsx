@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { backupFilename, decodeBackup, encodeBackup, ledgerCsv, restoreBackup, snapshot, type Backup } from '../../core/backup';
 import { syncSummary } from '../../core/cloudsync';
 import { fmtDate, fmtDateTime } from '../../core/fmt';
+import { draftsSummary } from '../../core/chatactions';
 import { encodeSheetParam } from '../../core/sheetsync';
 import { nowSecond } from '../../core/ids';
 import { useApp, useStore } from '../hooks';
@@ -336,7 +337,7 @@ function ChatActionsCard() {
         <div class="title">Assistant</div>
         <SwitchRow
           title="Chat actions" checked={app.settings.chatActionsOn}
-          subtitle="Let the assistant prepare bookings and payments received from chat. You approve each one."
+          subtitle={`Let the assistant prepare ${draftsSummary(app.account.role)} from chat. You approve each one.`}
           onChange={(v) => { app.settings.setChatActions(v); if (v) app.settings.acknowledgeChatActionsNotice(); }}
         />
         <div class="tiny muted">This switch is for this phone only. Nothing is saved until you tap Approve on a card.</div>

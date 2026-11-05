@@ -1,7 +1,7 @@
 import { AppError } from './errors';
 import {
-  MAX_DRAFTS_PER_REPLY, applyDraft, draftFromCall, draftNote, draftsAllowed, resolveDraft, toolDeclarations, trekRefs, viewDraft,
-  type ChoiceField, type Draft, type DraftDeps, type DraftView, type TrekRef,
+  MAX_DRAFTS_PER_REPLY, applyDraft, choose, draftFromCall, draftNote, draftsAllowed, resolveDraft, toolDeclarations, trekRefs, vendorRefs, viewDraft,
+  type ChoiceField, type Draft, type DraftDeps, type DraftView, type Refs,
 } from './chatactions';
 import { GeminiClient, type GeminiMessage, type GeminiRole, type Streamer } from './gemini';
 import { buildPrompt } from './prompt';
@@ -57,7 +57,7 @@ export class Chat extends Observable {
     return this.actions !== undefined && this.actions.role() !== undefined && this.settings.chatActionsOn && !this.settings.chatActionsNoticeSeen;
   }
   private get deps(): DraftDeps | undefined {
-    return this.actions ? { treks: this.treks, bookings: this.actions.bookings, ledger: this.actions.ledger } : undefined;
+    return this.actions ? { treks: this.treks, bookings: this.actions.bookings, ledger: this.actions.ledger, vendors: this.vendors } : undefined;
   }
 
   get hasKey(): boolean { return this.secrets.geminiKey !== null; }
@@ -97,7 +97,7 @@ export class Chat extends Observable {
       .filter((m) => !m.isError && m.id !== replyID && m.text !== '')
       .map((m) => ({ role: m.role, text: this.historyText(m) }));
     const tools = this.actionsActive ? toolDeclarations(this.actions!.role()) : [];
-    const refs = this.actionsActive ? trekRefs(this.treks.treks, now) : [];
+    const refs: Refs = this.actionsActive ? { treks: trekRefs(this.treks.treks, now), vendors: vendorRefs(this.vendors.vendors) } : { treks: [], vendors: [] };
     const system = buildPrompt({
       basePrompt: this.settings.systemPrompt, treks: this.treks.treks, vendors: this.vendors.vendors,
       guidance: this.guidance.rules.map((r) => r.text), clientBrief: this.brief, now, actionTools: tools.map((t) => t.name),
@@ -132,7 +132,7 @@ export class Chat extends Observable {
     return `${m.text}\n[App: drafts shown to the user, not saved: ${m.drafts.map((x) => draftNote(x, d)).join('; ')}]`;
   }
 
-  private addDraft(replyID: Id, tool: string, args: Record<string, unknown>, refs: TrekRef[], now: Date) {
+  private addDraft(replyID: Id, tool: string, args: Record<string, unknown>, refs: Refs, now: Date) {
     const deps = this.deps;
     if (!deps || !this.actionsActive) return;
     // The role is checked here as well as in the tool list, so a tool the role was not offered cannot make a card.
@@ -175,14 +175,8 @@ export class Chat extends Observable {
     if (!deps) return;
     this.changeDraft(draftID, (d) => {
       if (d.state !== 'pending') return d;
-      const data = { ...d.data } as Draft['data'];
-      if (field === 'mode') (data as { mode?: string }).mode = value;
-      if (field === 'trek') {
-        data.trekID = value;
-        if (data.kind === 'paymentIn') delete data.bookingID;
-      }
-      if (field === 'booking' && data.kind === 'paymentIn') data.bookingID = value;
-      const next: Draft = { ...d, data: data as Draft['data'], error: undefined };
+      const data = choose(d.data, field, value);
+      const next: Draft = { ...d, data, error: undefined };
       resolveDraft(next, deps);
       return next;
     });
@@ -227,10 +221,10 @@ export class Chat extends Observable {
   }
 
   /** Called by a form that was opened with Edit, after it saved. The card then reads "Saved from the form". */
-  draftSavedFromForm(draftID: string, text: string, now = new Date()) {
+  draftSavedFromForm(draftID: string, text: string, now = new Date(), recordIDs?: Id[]) {
     const draft = this.findDraft(draftID);
     if (!draft || draft.state !== 'pending') return;
-    this.setDraftState(draftID, 'saved', () => true, { result: text, error: undefined });
+    this.setDraftState(draftID, 'saved', () => true, { result: text, recordIDs, error: undefined });
     this.notes.push(`${draftID} was edited and saved from the form by the user.`);
     this.settings.logChatAction('edited', toInstant(now));
   }

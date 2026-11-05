@@ -55,11 +55,11 @@ export function useRoute(): Route {
 /** The routes that screens open, so nobody builds a route string by hand. */
 export const to = {
   trek: (id: string) => `/trek/${id}`,
-  editTrek: (id?: string) => `/edit-trek/${id ?? 'new'}`,
+  editTrek: (id?: string, draft?: string) => `/edit-trek/${id ?? 'new'}${draft ? `?draft=${draft}` : ''}`,
   duplicateTrek: (id: string) => `/duplicate/${id}`,
   addBooking: (trekID: string, draft?: string) => `/booking/${trekID}${draft ? `?draft=${draft}` : ''}`,
   vendor: (id: string) => `/vendor/${id}`,
-  editVendor: (id?: string) => `/edit-vendor/${id ?? 'new'}`,
+  editVendor: (id?: string, draft?: string) => `/edit-vendor/${id ?? 'new'}${draft ? `?draft=${draft}` : ''}`,
   prompt: () => '/prompt',
   people: () => '/people',
   invite: () => '/invite',

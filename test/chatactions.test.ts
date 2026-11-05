@@ -1,13 +1,13 @@
 import './helpers';
 import { describe, expect, it } from 'vitest';
 import { Chat, DRAFT_INTRO, type ChatActionDeps } from '../src/core/chat';
-import { MAX_DRAFTS_PER_REPLY, TOOL_BOOKING, TOOL_PAYMENT_IN, draftFromCall, matchBookings, toolDeclarations, trekRefs } from '../src/core/chatactions';
+import { MAX_DRAFTS_PER_REPLY, TOOL_BOOKING, TOOL_PAYMENT_IN, TOOL_PAYMENT_OUT, TOOL_TREK, TOOL_VENDOR, draftFromCall, draftsSummary, matchBookings, toolDeclarations, trekRefs } from '../src/core/chatactions';
 import { makeStreamRequest, parseSSELine, type GeminiEvent, type GeminiMessage } from '../src/core/gemini';
 import { buildPrompt } from '../src/core/prompt';
 import { Secrets, SettingsStore } from '../src/core/settings';
 import { BookingStore, GuidanceStore, LedgerStore, TrekStore, VendorStore } from '../src/core/stores';
 import { MemoryKV } from '../src/core/storage';
-import { makeBooking, makeTrek, type Trek } from '../src/core/models';
+import { makeBooking, makeTrek, makeVendor, type Trek } from '../src/core/models';
 import type { Role } from '../src/core/roles';
 import { toInstant } from '../src/core/ids';
 import { DEFAULT_SYSTEM_PROMPT } from '../src/core/prompt';
@@ -174,7 +174,7 @@ describe('chat actions: checks happen on the phone', () => {
     const chat = h.chat();
     await chat.send('Book on Kedarnath', NOW);
     const d = chat.messages[1].drafts![0];
-    expect(d.data.trekID).toBeUndefined();
+    expect((d.data as { trekID?: string }).trekID).toBeUndefined();
     let v = chat.viewDraft(d, NOW)!;
     expect(v.canApprove).toBe(false);
     expect(v.choice?.field).toBe('trek');
@@ -305,7 +305,7 @@ describe('chat actions: a payment received', () => {
   });
 
   it('reads the date as that day, and weekday shows on the card', () => {
-    const refs = trekRefs([makeTrek({ name: 'X', startDate: start(10) })], NOW);
+    const refs = { treks: trekRefs([makeTrek({ name: 'X', startDate: start(10) })], NOW), vendors: [] };
     const p = draftFromCall(TOOL_PAYMENT_IN, { trek_ref: 'T1', traveller_name: 'A', amount: '2500', date: '2026-12-12' }, refs, NOW)!;
     expect(p.data.kind === 'paymentIn' && p.data.amount).toBe(2500);
     expect(new Date(p.data.kind === 'paymentIn' ? p.data.date : '').getDay()).toBe(6); // Saturday
@@ -387,7 +387,8 @@ describe('chat actions: Edit, roles and the switch', () => {
 
   it('keeps the change of role out of Staff reach for things that are not drafts', () => {
     expect(toolDeclarations(undefined)).toEqual([]);
-    for (const role of ['Staff', 'Manager', 'Owner'] as const) expect(toolDeclarations(role).map((t) => t.name)).toEqual([TOOL_BOOKING, TOOL_PAYMENT_IN]);
+    expect(toolDeclarations('Staff').map((t) => t.name)).toEqual([TOOL_BOOKING, TOOL_PAYMENT_IN]);
+    for (const role of ['Manager', 'Owner'] as const) expect(toolDeclarations(role).map((t) => t.name)).toEqual([TOOL_BOOKING, TOOL_PAYMENT_IN, TOOL_PAYMENT_OUT, TOOL_TREK, TOOL_VENDOR]);
   });
 
   it('a new chat forgets cards and notes', async () => {
@@ -420,3 +421,194 @@ describe('chat actions: the Gemini side', () => {
     expect(req.url).not.toContain('SECRET');
   });
 });
+
+describe('chat actions: trips, vendors and money out (Managers and Owners)', () => {
+  const trekCall = (over: Record<string, unknown> = {}): GeminiEvent => ({
+    type: 'draft', tool: TOOL_TREK, args: { name: 'Triund Weekend', duration_days: 2, difficulty: 'Easy', start_date: '2026-12-20', price_per_person: 4500, seats: 20, ...over },
+  });
+  const vendorCall = (over: Record<string, unknown> = {}): GeminiEvent => ({
+    type: 'draft', tool: TOOL_VENDOR, args: { name: 'Himalayan Stays', service: 'Stay', phone: '98320 55501', rate: 1800, rate_unit: 'per night', tags: ['Darjeeling', 'homestay'], agreed_trek_ref: 'T1', agreed_amount: 30000, ...over },
+  });
+  const outCall = (over: Record<string, unknown> = {}): GeminiEvent => ({
+    type: 'draft', tool: TOOL_PAYMENT_OUT, args: { trek_ref: 'T1', vendor_ref: 'V1', amount: 12000, payment_mode: 'Cash', ...over },
+  });
+  function manager(): Harness { const h = new Harness(); h.role = 'Manager'; return h; }
+
+  it('a Staff phone gets no such tools, and a call for one makes no card', async () => {
+    const h = new Harness();
+    h.next = [trekCall(), vendorCall(), outCall()];
+    const chat = h.chat();
+    await chat.send('add a trek', NOW);
+    expect(h.seen[0].tools).toEqual([TOOL_BOOKING, TOOL_PAYMENT_IN]);
+    expect(chat.messages[1].drafts).toBeUndefined();
+    expect(h.treks.treks.length).toBe(1);
+    expect(h.vendors.vendors.length).toBe(0);
+    expect(h.ledger.entries.length).toBe(0);
+    expect(h.seen[0].system).not.toContain('[V1]');
+    expect(draftsSummary('Staff')).toBe('bookings and payments received');
+    expect(draftsSummary('Owner')).toBe('trips, vendors, bookings and payments');
+  });
+
+  it('drafts a trek, writes nothing until Approve, then adds it like the form does', async () => {
+    const h = manager();
+    h.next = [trekCall()];
+    const chat = h.chat();
+    await chat.send('Add Triund weekend trek 20 Dec', NOW);
+    const d = chat.messages[1].drafts![0];
+    const v = chat.viewDraft(d, NOW)!;
+    expect(v.canApprove).toBe(true);
+    expect(v.rows.find((r) => r.label === 'Dates')!.value).toBe('Sun 20 Dec 2026 to Mon 21 Dec 2026');
+    expect(v.rows.find((r) => r.label === 'Price')!.value).toBe('₹4,500 per person');
+    expect(h.treks.treks.length).toBe(1);
+    expect(chat.approveDraft(d.id, false, NOW)).toBeNull();
+    const t = h.treks.treks.find((x) => x.name === 'Triund Weekend')!;
+    expect(t).toMatchObject({ durationDays: 2, difficulty: 'Easy', pricePerPerson: 4500, seatsLeft: 20, seatCapacity: 20 });
+    expect(new Date(t.startDate!).getDate()).toBe(20);
+    expect(chat.findDraft(d.id)!.recordIDs).toEqual([t.id]);
+    // the next message's catalogue now carries it
+    h.next = [{ type: 'text', text: 'ok' }];
+    await chat.send('thanks', NOW);
+    expect(h.seen[1].system).toContain('Triund Weekend');
+  });
+
+  it('asks for the difficulty and the days instead of assuming, and warns about a trek that is already there', async () => {
+    const h = manager();
+    h.next = [trekCall({ difficulty: undefined, duration_days: undefined, name: 'Gorkhey – Samanden', start_date: undefined })];
+    const chat = h.chat();
+    await chat.send('add Gorkhey', NOW);
+    const d = chat.messages[1].drafts![0];
+    let v = chat.viewDraft(d, NOW)!;
+    expect(v.choice?.field).toBe('difficulty');
+    expect(v.problems).toContain('Say how many days (use Edit).');
+    expect(chat.approveDraft(d.id, false, NOW)).toBe('Say how many days (use Edit).');
+    expect(h.treks.treks.length).toBe(1);
+    // a dated clash is a warning, not a block
+    h.next = [trekCall({ name: 'gorkhey – samanden', start_date: toInstant(new Date(h.gorkhey.startDate!)).slice(0, 10) })];
+    await chat.send('add it again', NOW);
+    chat.chooseForDraft('D2', 'difficulty', 'Moderate');
+    v = chat.viewDraft(chat.findDraft('D2')!, NOW)!;
+    expect(v.warnings.some((w) => w.includes('is already in Treks'))).toBe(true);
+  });
+
+  it('adds a vendor with one agreed amount, and never changes one that exists', async () => {
+    const h = manager();
+    h.next = [vendorCall()];
+    const chat = h.chat();
+    await chat.send('new stay vendor Himalayan Stays', NOW);
+    const d = chat.messages[1].drafts![0];
+    expect(chat.viewDraft(d, NOW)!.canApprove).toBe(true);
+    expect(h.vendors.vendors.length).toBe(0);
+    expect(chat.approveDraft(d.id, false, NOW)).toBeNull();
+    const v = h.vendors.vendors[0];
+    expect(v).toMatchObject({ name: 'Himalayan Stays', service: 'Stay', rate: 1800, rateUnit: 'per night', phone: '98320 55501' });
+    expect(v.tags).toEqual(['darjeeling', 'homestay']);
+    expect(v.agreements).toEqual([{ trekID: h.gorkhey.id, trekName: h.gorkhey.name, amount: 30000 }]);
+
+    h.next = [vendorCall({ agreed_trek_ref: undefined, agreed_amount: undefined })];
+    await chat.send('add it again', NOW);
+    const again = chat.viewDraft(chat.findDraft('D2')!, NOW)!;
+    expect(again.canApprove).toBe(false);
+    expect(again.problems[0]).toContain('already exists. To change it, open it in Vendors.');
+    expect(h.vendors.vendors.length).toBe(1);
+  });
+
+  it('asks for the service and the rate unit, and warns about a look-alike name', async () => {
+    const h = manager();
+    h.vendors.upsert(makeVendor({ name: 'Himalayan Stays Darjeeling', service: 'Stay' }));
+    h.next = [vendorCall({ service: undefined, rate_unit: undefined, agreed_trek_ref: undefined, agreed_amount: undefined })];
+    const chat = h.chat();
+    await chat.send('new vendor', NOW);
+    const d = chat.messages[1].drafts![0];
+    expect(chat.viewDraft(d, NOW)!.choice?.field).toBe('service');
+    chat.chooseForDraft(d.id, 'service', 'Stay');
+    expect(chat.viewDraft(chat.findDraft(d.id)!, NOW)!.choice?.field).toBe('rateUnit');
+    chat.chooseForDraft(d.id, 'rateUnit', 'per night');
+    const v = chat.viewDraft(chat.findDraft(d.id)!, NOW)!;
+    expect(v.needsAnyway).toBe(true); // a look-alike name is a warning: the button reads Add anyway
+    expect(chat.approveDraft(d.id, false, NOW)).toContain('already in Vendors');
+    expect(h.vendors.vendors.length).toBe(1);
+    expect(chat.approveDraft(d.id, true, NOW)).toBeNull();
+    expect(h.vendors.vendors.length).toBe(2);
+  });
+
+  it('lists vendors by reference to a Manager, with no phone numbers, and records money out against the vendor and the trip', async () => {
+    const h = manager();
+    const stays = h.vendors.upsert(makeVendor({ name: 'Himalayan Stays', service: 'Stay', phone: '9800000000', rate: 1800, rateUnit: 'per night', agreements: [{ trekID: h.gorkhey.id, trekName: h.gorkhey.name, amount: 30000 }] }));
+    h.ledger.add({ ...makeEntryLike(h, 18000, 'Money out'), vendorID: stays.id, vendorName: stays.name, party: stays.name });
+    h.next = [outCall()];
+    const chat = h.chat();
+    await chat.send('Paid Himalayan Stays 12000 cash for Gorkhey', NOW);
+    expect(h.seen[0].system).toContain('[V1] Himalayan Stays');
+    expect(h.seen[0].system).not.toContain('9800000000');
+    expect(h.seen[0].tools).toEqual([TOOL_BOOKING, TOOL_PAYMENT_IN, TOOL_PAYMENT_OUT, TOOL_TREK, TOOL_VENDOR]);
+    const d = chat.messages[1].drafts![0];
+    const v = chat.viewDraft(d, NOW)!;
+    expect(v.sums).toEqual(['Agreed ₹30,000 · paid so far ₹18,000', 'After this: paid ₹30,000, nothing owed']);
+    expect(v.canApprove).toBe(true);
+    expect(chat.approveDraft(d.id, false, NOW)).toBeNull();
+    const e = h.ledger.entries.find((x) => x.amount === 12000)!;
+    expect(e).toMatchObject({ kind: 'Money out', vendorID: stays.id, vendorName: 'Himalayan Stays', mode: 'Cash' });
+    expect(e.bookingID).toBeUndefined();
+    expect(e.shares).toEqual([{ trekID: h.gorkhey.id, trekName: h.gorkhey.name, amount: 12000 }]);
+    expect(h.ledger.paidToVendor(stays.id, h.gorkhey.id)).toBe(30000);
+  });
+
+  it('warns about money out above what was agreed and about a repeat, and asks which vendor when the reference is unknown', async () => {
+    const h = manager();
+    const stays = h.vendors.upsert(makeVendor({ name: 'Himalayan Stays', service: 'Stay', agreements: [{ trekID: h.gorkhey.id, trekName: h.gorkhey.name, amount: 10000 }] }));
+    h.vendors.upsert(makeVendor({ name: 'Dorje Guide', service: 'Guide' }));
+    h.next = [outCall({ amount: 12000, vendor_ref: 'V2' }), outCall({ vendor_ref: 'V9', vendor_name: 'Himalayan' })];
+    const chat = h.chat();
+    await chat.send('pay', NOW);
+    const over = chat.viewDraft(chat.messages[1].drafts![0], NOW)!;
+    expect(over.warnings.some((w) => w.includes('₹2,000 more than was agreed'))).toBe(true);
+    // V1 is Dorje (the store orders by name), V2 is Himalayan Stays. A wrong reference never silently picks someone: only a name that matches one vendor does
+    const second = chat.messages[1].drafts![1];
+    expect((second.data as { vendorID?: string }).vendorID).toBe(stays.id); // 'Himalayan' matches exactly one vendor by name
+    chat.approveDraft(chat.messages[1].drafts![1].id, true, NOW);
+    h.next = [outCall({ vendor_ref: 'V9', vendor_name: undefined })];
+    await chat.send('pay someone', NOW);
+    const unknown = chat.viewDraft(chat.findDraft('D3')!, NOW)!;
+    expect(unknown.choice?.field).toBe('vendor');
+    expect(unknown.canApprove).toBe(false);
+  });
+
+  it('records a refund to a traveller, and refuses a vendor and a traveller together', async () => {
+    const h = manager();
+    const b = h.bookings.confirm({ trekID: h.gorkhey.id, travellers: ['Anil Das'], phone: '1', amountReceived: 9500, mode: 'UPI', trekStore: h.treks, ledger: h.ledger, now: NOW });
+    h.bookings.cancel(b.id, h.treks, NOW);
+    h.vendors.upsert(makeVendor({ name: 'Dorje', service: 'Guide' }));
+    h.next = [outCall({ vendor_ref: undefined, traveller_name: 'Anil', amount: 9500, payment_mode: 'UPI' }), outCall({ traveller_name: 'Anil' })];
+    const chat = h.chat();
+    await chat.send('refund Anil', NOW);
+    const refund = chat.messages[1].drafts![0];
+    const v = chat.viewDraft(refund, NOW)!;
+    expect(v.rows.find((r) => r.label === 'Refund to')!.value).toBe('Anil Das');
+    expect(v.sums[0]).toBe('Received from them, less refunds so far: ₹9,500');
+    expect(chat.approveDraft(refund.id, false, NOW)).toBeNull();
+    const e = h.ledger.entries.find((x) => x.kind === 'Money out')!;
+    expect(e).toMatchObject({ bookingID: b.id, customerName: 'Anil Das', amount: 9500 });
+    expect(e.vendorID).toBeUndefined();
+    const both = chat.viewDraft(chat.messages[1].drafts![1], NOW)!;
+    expect(both.canApprove).toBe(false);
+    expect(both.problems.join(' ')).toContain('either a vendor or a traveller');
+  });
+
+  it('Edit then save on a trip or vendor draft marks the card and keeps the record ids', async () => {
+    const h = manager();
+    h.next = [trekCall(), vendorCall({ agreed_trek_ref: undefined, agreed_amount: undefined })];
+    const chat = h.chat();
+    await chat.send('add both', NOW);
+    chat.draftSavedFromForm('D1', 'Trek added · Triund Weekend', NOW, ['ID-1']);
+    expect(chat.findDraft('D1')).toMatchObject({ state: 'saved', recordIDs: ['ID-1'] });
+    chat.denyDraft('D2', NOW);
+    expect(h.settings.chatActionLog.map((x) => x.outcome)).toEqual(['edited', 'denied']);
+  });
+});
+
+function makeEntryLike(h: Harness, amount: number, kind: 'Money in' | 'Money out') {
+  return {
+    id: crypto.randomUUID().toUpperCase(), date: toInstant(NOW), kind, amount, mode: 'UPI' as const, party: '', note: '', createdAt: toInstant(NOW),
+    shares: [{ trekID: h.gorkhey.id, trekName: h.gorkhey.name, amount }],
+  };
+}

@@ -35,7 +35,7 @@ function ConfirmBookingScreenForm({ trekID, draftID }: { trekID: string; draftID
     }
     try {
       const b = app.bookings.confirm({ trekID: trek!.id, travellers: names.slice(0, party), phone, amountReceived: amount, mode, trekStore: app.treks, ledger: app.ledger });
-      if (pre && draftID) app.chat.draftSavedFromForm(draftID, `Booking added · ${b.travellers[0]}${b.travellers.length > 1 ? ` + ${b.travellers.length - 1}` : ''} · ${b.travellers.length} seat${b.travellers.length === 1 ? '' : 's'} on ${trek!.name}`);
+      if (pre && draftID) app.chat.draftSavedFromForm(draftID, `Booking added · ${b.travellers[0]}${b.travellers.length > 1 ? ` + ${b.travellers.length - 1}` : ''} · ${b.travellers.length} seat${b.travellers.length === 1 ? '' : 's'} on ${trek!.name}`, undefined, [b.id]);
       nav.back();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The booking could not be saved.');

@@ -37,7 +37,7 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
   const draftID = query.get('draft') || undefined;
   const pre = useMemo(() => {
     const d = draftID ? app.chat.findDraft(draftID) : undefined;
-    return d && d.state === 'pending' && d.data.kind === 'paymentIn' ? d.data : undefined;
+    return d && d.state === 'pending' && (d.data.kind === 'paymentIn' || d.data.kind === 'paymentOut') ? d.data : undefined;
   }, [draftID]);
 
   const vendor0 = existing?.vendorID ?? presetVendor;
@@ -130,7 +130,12 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
         if (total !== amount) throw sharesMismatch(amount, total);
         const day = date ?? toInstant(new Date());
         const saved = app.ledger.addAll(ids.map((id, i) => make(makeEntry({ date: day, kind, amount: values[i] }), id, values[i])));
-        if (pre && draftID && saved.length === 1) app.chat.draftSavedFromForm(draftID, `Payment recorded · ${rupees(saved[0].amount)} by ${saved[0].mode} · ${saved[0].customerName ?? saved[0].party}`);
+        if (pre && draftID && saved.length === 1) {
+          const e = saved[0];
+          app.chat.draftSavedFromForm(draftID, e.kind === 'Money in'
+            ? `Payment recorded · ${rupees(e.amount)} by ${e.mode} · ${e.customerName ?? e.party}`
+            : `Payment out recorded · ${rupees(e.amount)} by ${e.mode} · ${e.vendorName ?? `refund to ${e.customerName ?? e.party}`}`, undefined, [e.id]);
+        }
       }
       nav.back();
     } catch (e) {

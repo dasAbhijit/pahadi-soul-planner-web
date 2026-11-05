@@ -14,20 +14,24 @@ export function DraftCard({ draft }: { draft: Draft }) {
   const [note, setNote] = useState<string | null>(null);
   const { state } = draft;
   const view = state === 'pending' ? app.chat.viewDraft(draft) : undefined;
-  const title = draft.data.kind === 'booking' ? 'booking' : 'payment';
+  const title = { booking: 'booking', paymentIn: 'payment received', paymentOut: 'payment out', trek: 'trek', vendor: 'vendor' }[draft.data.kind];
 
   if (state === 'denied') return <div class="draft closed">Denied. Nothing was saved.</div>;
   if (state === 'replaced') return <div class="draft closed">Replaced by a newer draft. Nothing was saved.</div>;
   if (state === 'applied' || state === 'saved') {
-    const trekID = draft.data.trekID;
+    const kind = draft.data.kind;
+    const trekID = kind === 'booking' ? draft.data.trekID : undefined;
+    const recordID = draft.recordIDs?.[0];
     return (
       <div class="draft done" role="status">
         {state === 'saved'
           ? <><div class="row ok bold small"><span>✓</span><span>Saved from the form</span></div><div class="small">{draft.result}</div></>
           : <div class="row ok bold small"><span>✓</span><span>{draft.result}</span></div>}
         <div class="row wrap" style="gap:16px">
-          {draft.data.kind === 'booking' && trekID ? <LinkButton text="Open booking" onClick={() => nav.go(to.trek(trekID))} /> : null}
-          {draft.data.kind === 'paymentIn' ? <LinkButton text="View in Money" onClick={() => nav.go('/money')} /> : null}
+          {kind === 'booking' && trekID ? <LinkButton text="Open booking" onClick={() => nav.go(to.trek(trekID))} /> : null}
+          {kind === 'paymentIn' || kind === 'paymentOut' ? <LinkButton text="View in Money" onClick={() => nav.go('/money')} /> : null}
+          {kind === 'trek' && recordID ? <LinkButton text="Open trek" onClick={() => nav.go(to.trek(recordID))} /> : null}
+          {kind === 'vendor' && recordID ? <LinkButton text="Open vendor" onClick={() => nav.go(to.vendor(recordID))} /> : null}
         </div>
       </div>
     );
@@ -38,12 +42,17 @@ export function DraftCard({ draft }: { draft: Draft }) {
     const why = app.chat.approveDraft(draft.id, view.needsAnyway);
     setNote(why);
   };
+  const data = draft.data;
   const edit = () => {
-    if (draft.data.kind === 'booking') {
-      if (draft.data.trekID) nav.go(to.addBooking(draft.data.trekID, draft.id));
-    } else nav.go(to.entry({ kind: 'in', trek: draft.data.trekID, booking: draft.data.bookingID, draft: draft.id }));
+    switch (data.kind) {
+      case 'booking': if (data.trekID) nav.go(to.addBooking(data.trekID, draft.id)); break;
+      case 'paymentIn': nav.go(to.entry({ kind: 'in', trek: data.trekID, booking: data.bookingID, draft: draft.id })); break;
+      case 'paymentOut': nav.go(to.entry({ kind: 'out', trek: data.trekID, vendor: data.vendorID, booking: data.bookingID, draft: draft.id })); break;
+      case 'trek': nav.go(to.editTrek(undefined, draft.id)); break;
+      case 'vendor': nav.go(to.editVendor(undefined, draft.id)); break;
+    }
   };
-  const canEdit = draft.data.kind === 'paymentIn' || draft.data.trekID !== undefined;
+  const canEdit = data.kind !== 'booking' || data.trekID !== undefined;
   const shownProblem = view.choice === undefined ? view.problems[0] : undefined;
 
   return (

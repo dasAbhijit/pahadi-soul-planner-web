@@ -47,11 +47,11 @@ function screenFor(r: Route): ComponentChildren {
     case 'vendors': return <VendorsScreen />;
     case 'settings': return <SettingsScreen />;
     case 'trek': return <TrekDetailScreen id={id} />;
-    case 'edit-trek': return <Guard cap="editTreks"><EditTrekScreen id={id === 'new' ? undefined : id} /></Guard>;
+    case 'edit-trek': return <Guard cap="editTreks"><EditTrekScreen id={id === 'new' ? undefined : id} draftID={r.query.get('draft') || undefined} /></Guard>;
     case 'duplicate': return <Guard cap="editTreks"><DuplicateTrekScreen id={id} /></Guard>;
     case 'booking': return <ConfirmBookingScreen trekID={id} draftID={r.query.get('draft') || undefined} />;
     case 'vendor': return <VendorDetailScreen id={id} />;
-    case 'edit-vendor': return <Guard cap="editVendors"><EditVendorScreen id={id === 'new' ? undefined : id} /></Guard>;
+    case 'edit-vendor': return <Guard cap="editVendors"><EditVendorScreen id={id === 'new' ? undefined : id} draftID={r.query.get('draft') || undefined} /></Guard>;
     case 'prompt': return <Guard cap="editRules"><PromptScreen /></Guard>;
     case 'people': return <PeopleScreen />;
     case 'invite': return <InviteScreen />;

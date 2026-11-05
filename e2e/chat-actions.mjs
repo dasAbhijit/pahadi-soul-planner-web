@@ -13,6 +13,7 @@ let failures = 0;
 const check = (ok, what) => { console.log(ok ? '  ✓' : '  ✗ FAIL', what); if (!ok) failures++; };
 
 // ---- a fake Gemini: decides from the last thing the user typed
+const day = (n) => new Date(Date.now() + n * 86400000).toISOString().replace(/\.\d+Z$/, 'Z');
 const geminiRequests = [];
 const sse = (parts) => 'data: ' + JSON.stringify({ candidates: [{ content: { parts } }] }) + '\n\n';
 const say = (t) => ({ text: t });
@@ -25,6 +26,9 @@ function gemini(req) {
   if (last.includes('Book Mita')) parts = [say('Here is the booking for you to check.'), call('draft_booking', { trek_ref: 'T1', travellers: ['Mita Das', 'Joy Das'], phone: '98300 55501', amount_received: 4000, payment_mode: 'Cash' })];
   else if (last.includes('Rohit ne')) parts = [say('Rohit ke do bookings mile.'), call('draft_payment_received', { trek_ref: 'T1', traveller_name: 'Rohit', amount: 14000, payment_mode: 'UPI' })];
   else if (last.includes('Book Anil')) parts = [say('Here is the booking.'), call('draft_booking', { trek_ref: 'T1', travellers: ['Anil Das'], phone: '98300 77701' })];
+  else if (last.includes('Add a trek')) parts = [say('Here is the trek.'), call('draft_trek', { name: 'Triund Weekend', duration_days: 2, difficulty: 'Easy', start_date: day(60).slice(0, 10), price_per_person: 4500, seats: 20 })];
+  else if (last.includes('New vendor')) parts = [say('Here is the vendor.'), call('draft_vendor', { name: 'Himalayan Stays', service: 'Stay', phone: '98320 55501', rate: 1800, rate_unit: 'per night', agreed_trek_ref: 'T1', agreed_amount: 30000 })];
+  else if (last.includes('Paid Himalayan')) parts = [say('Here is the payment.'), call('draft_payment_out', { trek_ref: 'T1', vendor_ref: 'V1', amount: 12000, payment_mode: 'Cash' })];
   else if (last.includes('Book Sonam')) parts = [say('Here is the booking.'), call('draft_booking', { trek_ref: 'T1', travellers: ['Sonam Lama'], phone: '98300 88801' })];
   return { headers: { 'Content-Type': 'text/event-stream' }, body: sse(parts) };
 }
@@ -42,7 +46,6 @@ const fillLabel = async (label, value) => {
 await fillLabel('Web app address', 'https://script.google.com/macros/s/CHAT/exec'); await fillLabel('Setup code', 'chat-setup-code-123456');
 await fillLabel('Your name', 'Chat Owner'); await fillLabel('Choose a password', 'chat-password-1'); await fillLabel('Repeat the password', 'chat-password-1');
 await b.click('Create Owner account'); await b.sleep(1500);
-const day = (n) => new Date(Date.now() + n * 86400000).toISOString().replace(/\.\d+Z$/, 'Z');
 const TREK = 'AAAAAAAA-1111-4111-8111-AAAAAAAAAAAA';
 await b.ev(`(()=>{
   localStorage.setItem('pahadi.treks', JSON.stringify([{id:'${TREK}',name:'Gorkhey – Samanden',region:'',durationDays:4,difficulty:'Moderate',pricePerPerson:9500,startDate:'${day(36)}',seatsLeft:9,seatCapacity:9,highlights:'',notes:'',updatedAt:'${day(-1)}'}]));
@@ -126,10 +129,40 @@ await send('thanks');
 const hist = geminiRequests[geminiRequests.length - 1].contents.map((c) => c.parts[0].text).join('\n');
 check(/was denied by the user; nothing was saved/.test(hist), 'the assistant was told the draft was denied');
 
+console.log('5b. Owner: a vendor, then money out to that vendor');
+await send('New vendor Himalayan Stays, Pema 98320 55501, 1800 a night, agreed 30000 for Gorkhey');
+await b.shot('chat-actions-vendor-card');
+t = await b.text();
+check(/DRAFT VENDOR/.test(t) && /Himalayan Stays/.test(t) && /₹30,000 for Gorkhey/.test(t), 'vendor card shows the vendor and the agreed amount');
+check((await stored('pahadi.vendors')).length === 0, 'no vendor saved before Approve');
+await b.click('Approve', '.draft.pending button'); await b.sleep(400);
+const vendors = await stored('pahadi.vendors');
+check(vendors.length === 1 && vendors[0].name === 'Himalayan Stays' && vendors[0].agreements[0].amount === 30000 && vendors[0].tags.length === 0, 'vendor saved with the agreed amount');
+await send('Paid Himalayan Stays 12000 cash for Gorkhey');
+const sys = JSON.stringify(geminiRequests[geminiRequests.length - 1].systemInstruction);
+check(sys.includes('[V1] Himalayan Stays') && !sys.includes('98320 55501'), 'the vendor list carries a reference and no phone number');
+await b.shot('chat-actions-payout-card');
+t = await b.text();
+check(/DRAFT PAYMENT OUT/.test(t) && /Agreed ₹30,000 · paid so far ₹0/.test(t), 'money-out card shows the vendor sums');
+await b.click('Approve', '.draft.pending button'); await b.sleep(400);
+const out = (await stored('pahadi.ledger')).find((e) => e.kind === 'Money out');
+check(out && out.amount === 12000 && out.vendorName === 'Himalayan Stays' && out.shares[0].trekName.startsWith('Gorkhey'), 'money out saved against the vendor and the trip');
+
+console.log('5c. Owner: a trek, opened in the form with Edit');
+await send('Add a trek Triund weekend');
+await b.click('Edit', '.draft.pending button'); await b.sleep(500);
+check(/From chat/.test(await b.text()) && (await b.ev(`[...document.querySelectorAll('input')].some(i=>i.value==='Triund Weekend')`)), 'trek form opens filled in');
+await b.shot('chat-actions-trek-form');
+const treksBefore = (await stored('pahadi.treks')).length;
+await b.click('Save', 'button'); await b.sleep(500);
+check((await stored('pahadi.treks')).length === treksBefore + 1, 'saving the form added the trek once');
+await b.go(U + '#/chat'); await b.sleep(400);
+check(/Saved from the form/.test(await b.text()), 'the trek card says "Saved from the form"');
+
 console.log('6. Settings: the switch, and what happened');
 await b.go(U + '#/settings'); await b.sleep(400);
 t = await b.text();
-check(/Chat actions/.test(t) && /Approved\s*\n?\s*2/.test(t.replace(/\n+/g, '\n')) , 'Settings counts 2 approved');
+check(/Chat actions/.test(t) && /Approved\s*\n?\s*4/.test(t.replace(/\n+/g, '\n')), 'Settings counts 4 approved');
 await b.shot('chat-actions-settings');
 await b.click('Chat actions', '.switch'); await b.sleep(200);
 await b.go(U + '#/chat'); await b.sleep(300);

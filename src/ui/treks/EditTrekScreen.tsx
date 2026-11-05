@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks';
 import { DIFFICULTIES, makeTrek, type Difficulty, type Trek } from '../../core/models';
 import { startOfDay, toInstant, type Instant } from '../../core/ids';
-import { AlertBox, Card, DateField, Field, FieldLabel, FormPage, LinkButton, Segmented, SwitchRow, Confirm } from '../kit';
+import { fmtDate } from '../../core/fmt';
+import { AlertBox, Card, DateField, Field, FieldLabel, FormPage, InfoNote, LinkButton, Segmented, SwitchRow, Confirm } from '../kit';
 import { useApp } from '../hooks';
 import { nav } from '../router';
 import { optionalInt } from './shared';
@@ -13,9 +14,16 @@ function tidy<T extends object>(o: T): T {
   return out as T;
 }
 
-function EditTrekScreenForm({ id }: { id?: string }) {
+function EditTrekScreenForm({ id, draftID }: { id?: string; draftID?: string }) {
   const app = useApp();
-  const [original] = useState<Trek>(() => (id ? app.treks.trek(id) : undefined) ?? makeTrek());
+  // Opened with Edit on a chat card: start from what the assistant drafted.
+  const pre = (() => { const d = draftID ? app.chat.findDraft(draftID) : undefined; return d && d.state === 'pending' && d.data.kind === 'trek' ? d.data : undefined; })();
+  const [original] = useState<Trek>(() => (id ? app.treks.trek(id) : undefined) ?? (pre
+    ? makeTrek(tidy({
+      name: pre.name, region: pre.region, durationDays: pre.durationDays ?? 3, difficulty: pre.difficulty ?? 'Moderate', maxAltitudeFt: pre.maxAltitudeFt,
+      pricePerPerson: pre.pricePerPerson, startDate: pre.startDate, seatsLeft: pre.startDate ? pre.seats : undefined, highlights: pre.highlights, notes: pre.notes,
+    }))
+    : makeTrek()));
   const isNew = !id || app.treks.trek(id) === undefined;
   const [name, setName] = useState(original.name);
   const [region, setRegion] = useState(original.region);
@@ -43,18 +51,21 @@ function EditTrekScreenForm({ id }: { id?: string }) {
     const st = optionalInt(seats);
     if (st === null) return setError('Seats left must be a number.');
     if (hasDate && date === undefined) return setError('Choose the start date.');
-    app.treks.upsert(tidy({
+    const record = tidy({
       ...original, name: trimmed, region: region.trim(), durationDays: d, difficulty, maxAltitudeFt: alt, pricePerPerson: pr,
       startDate: hasDate && date ? toInstant(startOfDay(date)) : undefined,
       seatsLeft: hasDate ? st : undefined,
       seatCapacity: hasDate && st !== undefined ? st + app.bookings.activeSeats(original.id) : undefined,
       highlights: highlights.trim(), notes: notes.trim(),
-    }));
+    });
+    app.treks.upsert(record);
+    if (pre && draftID && isNew) app.chat.draftSavedFromForm(draftID, `Trek added · ${record.name}${record.startDate ? ` · ${fmtDate(record.startDate)}` : ''}`, undefined, [record.id]);
     nav.back();
   }
 
   return (
     <FormPage title={isNew ? 'Add trek' : 'Edit trek'} onSave={save}>
+      {pre ? <InfoNote>From chat. Check it, change anything, then save. If you leave without saving, nothing is saved.</InfoNote> : null}
       <Field label="Trek name" value={name} onChange={setName} words />
       <Field label="Region" value={region} onChange={setRegion} words />
       <div class="two">
@@ -91,6 +102,6 @@ function EditTrekScreenForm({ id }: { id?: string }) {
 }
 
 /** Keyed by id, so opening a different record starts the form afresh. */
-export function EditTrekScreen({ id }: { id?: string }) {
-  return <EditTrekScreenForm key={id ?? 'new'} id={id} />;
+export function EditTrekScreen({ id, draftID }: { id?: string; draftID?: string }) {
+  return <EditTrekScreenForm key={(id ?? 'new') + (draftID ?? '')} id={id} draftID={draftID} />;
 }

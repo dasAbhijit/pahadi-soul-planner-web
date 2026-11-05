@@ -6,6 +6,7 @@ import { AlertBox, Chip, FieldLabel, LinkButton, OutlineButton, Page, useToast }
 import { nav } from '../router';
 import { InlineMarkdown } from './Markdown';
 import { DraftCard } from './DraftCard';
+import { draftsAllowed, draftsSummary } from '../../core/chatactions';
 import './chat.css';
 
 async function copyText(text: string): Promise<boolean> {
@@ -42,7 +43,7 @@ export function ChatScreen() {
   useEffect(() => {
     const body = endRef.current?.closest('.body');
     if (body) body.scrollTop = body.scrollHeight;
-  }, [msgs.length, last?.text, last?.proposal?.state]);
+  }, [msgs.length, last?.text, last?.proposal?.state, last?.drafts?.length, last?.drafts?.map((d) => d.state).join()]);
 
   // Grow the box with what is typed, up to a few lines.
   useEffect(() => {
@@ -72,6 +73,13 @@ export function ChatScreen() {
           <>
             <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Add a booking: '); boxRef.current?.focus(); }}>Add a booking</button>
             <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Payment received: '); boxRef.current?.focus(); }}>Payment received</button>
+            {draftsAllowed(app.account.role).includes('trek') ? (
+              <>
+                <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Add a trek: '); boxRef.current?.focus(); }}>Add a trek</button>
+                <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Add a vendor: '); boxRef.current?.focus(); }}>Add a vendor</button>
+                <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Payment out: '); boxRef.current?.focus(); }}>Payment out</button>
+              </>
+            ) : null}
           </>
         ) : null}
         {QUICK_PROMPTS.map((p) => (
@@ -153,7 +161,7 @@ function MessageRow(p: { m: ChatMessage; streaming: boolean; onCopy: () => void;
         {m.proposal ? <ProposalCard p={m.proposal} onApply={p.onApply} onDismiss={p.onDismiss} /> : null}
         {m.drafts?.map((d) => <DraftCard key={d.id} draft={d} />)}
       </div>
-      {!m.isError && !streaming && m.text !== '' ? (
+      {!m.isError && !streaming && m.text !== '' && !(m.drafts && m.drafts.length > 0) ? (
         <div class="msg-actions">
           <a class="pillbtn solid" href={whatsAppUrl(m.text)} target="_blank" rel="noopener noreferrer">Send on WhatsApp</a>
           <button type="button" class="pillbtn" onClick={p.onCopy}>Copy</button>
@@ -206,8 +214,8 @@ function ActionsNotice() {
   return (
     <div class="notice" role="region" aria-label="Chat actions">
       <div class="title">Chat actions</div>
-      <div class="small">The assistant can prepare a booking or a payment received from what you type. You check the card and tap <strong>Approve</strong>, <strong>Edit</strong> or <strong>Deny</strong>. Nothing is saved until you approve.</div>
-      <div class="small"><strong>What goes to Gemini:</strong> what you type in chat, including any names and phone numbers you type, and the trek list. Bookings and payments already on this phone are not sent.</div>
+      <div class="small">The assistant can prepare {draftsSummary(app.account.role)} from what you type. You check the card and tap <strong>Approve</strong>, <strong>Edit</strong> or <strong>Deny</strong>. Nothing is saved until you approve.</div>
+      <div class="small"><strong>What goes to Gemini:</strong> what you type in chat, including any names and phone numbers you type, and the trek{draftsAllowed(app.account.role).includes('trek') ? ' and vendor' : ''} list. Bookings and payments already on this phone are not sent.</div>
       <div class="row wrap" style="gap:8px">
         <button type="button" class="btn small" style="width:auto" onClick={() => app.settings.acknowledgeChatActionsNotice()}>Turn on chat actions</button>
         <LinkButton text="Not now" onClick={() => { app.settings.setChatActions(false); app.settings.acknowledgeChatActionsNotice(); }} />

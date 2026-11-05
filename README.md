@@ -25,8 +25,8 @@ In chat, staff can say "Book Rohit and Anita on Gorkhey 12 Dec, ₹5,000 UPI" or
 - `src/core/chatactions.ts` holds the draft types, the tools offered per role, the checks (seats, amounts, one trip, duplicates, which traveller) and the write. `chat.ts` runs the cards; `prompt.ts` adds the CHAT ACTIONS rules and a reference (`[T3]`) to each trek line.
 - Gemini names a trek by that reference, never by id. The traveller for a payment is matched on the phone. Bookings, payments and phone numbers already saved are **not** sent to Gemini; what staff type in chat is.
 - Off until the person has read the notice (shown once in Chat) and on unless they switch it off in Settings. Per phone.
-- Tests: `test/chatactions.test.ts` (fake Gemini), `npm run e2e:chat` (real browser, fake Gemini). Gemini's own choice of tool and fields has **not** been tried on real chats yet.
-- Phase 1 is bookings and payments received. Trips, vendors and money out are designed (boards 43 to 53) and not built.
+- Tests: `test/chatactions.test.ts` (fake Gemini), `npm run e2e:chat` (real browser, fake Gemini, including a Manager/Owner adding a vendor, paying it and adding a trek through Edit). Gemini's own choice of tool and fields has **not** been tried on real chats yet.
+- Staff can draft a booking and a payment received. Managers and Owners can also draft a trek, a vendor (new ones only) and money out to a vendor or as a refund. Each tool is offered only to a role that can do the same in the forms, and checked again at Approve. Changing or deleting existing records by chat is not built.
 
 ## Differences from the phone apps
 

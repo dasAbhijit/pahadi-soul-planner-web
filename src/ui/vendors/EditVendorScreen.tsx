@@ -1,27 +1,30 @@
 import { useState } from 'preact/hooks';
 import { RATE_UNITS, SERVICE_TYPES, makeVendor, parseTags, type RateUnit, type ServiceType, type TripAgreement, type Vendor } from '../../core/models';
 import type { Id } from '../../core/ids';
-import { AlertBox, Confirm, Field, FieldLabel, FormPage, LinkButton, PickerRow, SelectField } from '../kit';
+import { AlertBox, Confirm, Field, FieldLabel, FormPage, InfoNote, LinkButton, PickerRow, SelectField } from '../kit';
 import { useApp, useStore } from '../hooks';
 import { nav } from '../router';
 import { optionalInt } from '../treks/shared';
 import '../treks/treks.css';
 
-function EditVendorScreenForm({ id }: { id?: string }) {
+function EditVendorScreenForm({ id, draftID }: { id?: string; draftID?: string }) {
   const app = useApp();
   useStore(app.treks);
   const [existing] = useState<Vendor | undefined>(() => (id ? app.vendors.vendor(id) : undefined));
-  const [name, setName] = useState(existing?.name ?? '');
-  const [service, setService] = useState<ServiceType>(existing?.service ?? 'Guide');
-  const [contact, setContact] = useState(existing?.contactName ?? '');
-  const [phone, setPhone] = useState(existing?.phone ?? '');
-  const [rateText, setRateText] = useState(existing?.rate?.toString() ?? '');
-  const [unit, setUnit] = useState<RateUnit>(existing?.rateUnit ?? 'per day');
-  const [tagText, setTagText] = useState(existing?.tags.join(', ') ?? '');
-  const [notes, setNotes] = useState(existing?.notes ?? '');
-  const [agreements, setAgreements] = useState<TripAgreement[]>(existing?.agreements ?? []);
+  // Opened with Edit on a chat card: start from what the assistant drafted.
+  const pre = (() => { const d = draftID && !id ? app.chat.findDraft(draftID) : undefined; return d && d.state === 'pending' && d.data.kind === 'vendor' ? d.data : undefined; })();
+  const preTrek = pre?.agreedTrekID ? app.treks.trek(pre.agreedTrekID) : undefined;
+  const [name, setName] = useState(existing?.name ?? pre?.name ?? '');
+  const [service, setService] = useState<ServiceType>(existing?.service ?? pre?.service ?? 'Guide');
+  const [contact, setContact] = useState(existing?.contactName ?? pre?.contactName ?? '');
+  const [phone, setPhone] = useState(existing?.phone ?? pre?.phone ?? '');
+  const [rateText, setRateText] = useState(existing?.rate?.toString() ?? pre?.rate?.toString() ?? '');
+  const [unit, setUnit] = useState<RateUnit>(existing?.rateUnit ?? pre?.rateUnit ?? 'per day');
+  const [tagText, setTagText] = useState(existing?.tags.join(', ') ?? pre?.tags.join(', ') ?? '');
+  const [notes, setNotes] = useState(existing?.notes ?? pre?.notes ?? '');
+  const [agreements, setAgreements] = useState<TripAgreement[]>(existing?.agreements ?? (preTrek && pre?.agreedAmount !== undefined ? [{ trekID: preTrek.id, trekName: preTrek.name, amount: pre.agreedAmount }] : []));
   const [agreedText, setAgreedText] = useState<Record<Id, string>>(
-    () => Object.fromEntries((existing?.agreements ?? []).map((a) => [a.trekID, String(a.amount)])));
+    () => Object.fromEntries((existing?.agreements ?? (preTrek && pre?.agreedAmount !== undefined ? [{ trekID: preTrek.id, amount: pre.agreedAmount }] : [])).map((a) => [a.trekID, String(a.amount)])));
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -37,11 +40,16 @@ function EditVendorScreenForm({ id }: { id?: string }) {
       agreements: agreements.map((a) => ({ trekID: a.trekID, trekName: a.trekName, amount: Number(agreedText[a.trekID] || 0) })),
     };
     if (v.rate === undefined) delete v.rate;
-    try { app.vendors.upsert(v); nav.back(); } catch (e) { setError(e instanceof Error ? e.message : 'The vendor could not be saved.'); }
+    try {
+      const saved = app.vendors.upsert(v);
+      if (pre && draftID && !existing) app.chat.draftSavedFromForm(draftID, `Vendor added · ${saved.name} · ${saved.service}`, undefined, [saved.id]);
+      nav.back();
+    } catch (e) { setError(e instanceof Error ? e.message : 'The vendor could not be saved.'); }
   }
 
   return (
     <FormPage title={existing ? 'Edit vendor' : 'Add vendor'} onSave={save}>
+      {pre ? <InfoNote>From chat. Check it, change anything, then save. If you leave without saving, nothing is saved.</InfoNote> : null}
       <Field label="Name" value={name} onChange={setName} placeholder="Vendor or person" words />
       <PickerRow title="Service" value={service} options={SERVICE_TYPES.map((s) => ({ value: s, label: s }))} onSelect={setService} />
       <div class="two" style="align-items:end">
@@ -87,6 +95,6 @@ function EditVendorScreenForm({ id }: { id?: string }) {
 }
 
 /** Keyed by id, so opening a different record starts the form afresh. */
-export function EditVendorScreen({ id }: { id?: string }) {
-  return <EditVendorScreenForm key={id ?? 'new'} id={id} />;
+export function EditVendorScreen({ id, draftID }: { id?: string; draftID?: string }) {
+  return <EditVendorScreenForm key={(id ?? 'new') + (draftID ?? '')} id={id} draftID={draftID} />;
 }
