@@ -213,6 +213,14 @@ const fromB64Url = (s: string): string | null => {
   } catch { return null; }
 };
 
+/** The sheet address as it travels in a sign-in link (`#/signin?sheet=...`), so the sign-in screen can skip asking for it. */
+export const encodeSheetParam = (address: string): string => toB64Url(address.trim());
+export function decodeSheetParam(param: string | null): string | null {
+  if (!param) return null;
+  const a = fromB64Url(param);
+  return a !== null && validateAddress(a) ? a.trim() : null;
+}
+
 /** The text an Owner sends: holds the sheet address and the one-time code. */
 export function inviteText(address: string, code: string): string {
   return `${INVITE_PREFIX}.${toB64Url(address.trim())}.${code}`;

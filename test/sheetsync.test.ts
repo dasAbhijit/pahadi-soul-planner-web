@@ -1,7 +1,7 @@
 import { ADDRESS, at, codeOf, failure, sec } from './helpers';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
-  SheetSyncClient, SheetSyncError, buildTables, cleanName, describeTables, fetchTransport, inviteText, parseInvite, rowCount, validateAddress,
+  SheetSyncClient, SheetSyncError, buildTables, cleanName, describeTables, fetchTransport, decodeSheetParam, encodeSheetParam, inviteText, parseInvite, rowCount, validateAddress,
   type SheetCell, type SheetTable, type TransportReply,
 } from '../src/core/sheetsync';
 import { decodeTables, mergeData, emptyData, recordCount } from '../src/core/syncmerge';
@@ -324,6 +324,21 @@ describe('client', () => {
     expect(new SheetSyncError('nothingToSync').message).toBe('There is no data in the app or the sheet yet, so there is nothing to sync.');
     expect(new SheetSyncError('network', { why: 'handshake failed' }).message).toBe("Couldn't reach Google: handshake failed");
     expect(new SheetSyncError('scriptTooOld').message).toContain('paste the new Code.gs');
+  });
+});
+
+describe('sign-in links', () => {
+  it('carry the sheet address and read back', () => {
+    const p = encodeSheetParam(ADDRESS);
+    expect(p).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(decodeSheetParam(p)).toBe(ADDRESS);
+  });
+
+  it('refuse junk, a missing value, and an address that is not a Google script', () => {
+    expect(decodeSheetParam(null)).toBeNull();
+    expect(decodeSheetParam('')).toBeNull();
+    expect(decodeSheetParam('not base64 !!')).toBeNull();
+    expect(decodeSheetParam(encodeSheetParam('https://evil.example/macros/s/x/exec'))).toBeNull();
   });
 });
 

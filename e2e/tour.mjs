@@ -31,6 +31,16 @@ for (const t of ['chat', 'treks', 'money', 'vendors', 'settings', 'prompt', 'peo
   console.log(t.padEnd(16), '|', txt);
   await b.shot('tour-' + t.replace(/[^a-z]/g, '-'));
 }
+// Sign out, then open a sign-in link: only a name and password are asked for.
+await b.go('http://localhost:4173/#/settings'); await b.sleep(300);
+await b.click('Sign out', '.btn.outline.danger'); await b.sleep(300); await b.click('Sign out and clear this phone', '.dialog button'); await b.sleep(700);
+{ const t = (await b.text()).replace(/\s+/g, ' ');
+  console.log('after sign out    |', t.slice(0, 120));
+  console.log(/Sheet address/.test(t) ? '  ✗ FAIL asks for the address after sign out' : '  ✓ no address asked after sign out (same browser remembers it)'); }
+await b.ev(`localStorage.removeItem('pahadi.settings')`);
+await b.go('http://localhost:4173/#/signin?sheet=' + Buffer.from('https://script.google.com/macros/s/TOUR/exec').toString('base64url')); await b.sleep(500);
+{ const t = (await b.text()).replace(/\s+/g, ' ');
+  console.log(/Sheet address/.test(t) || !/Sheet: connected/.test(t) ? '  ✗ FAIL sign-in link did not fill in the address' : '  ✓ a sign-in link fills in the address on a fresh browser'); }
 console.log('page errors:', JSON.stringify(b.errors), 'console:', JSON.stringify(b.logs));
 // service worker + offline
 await b.go('http://localhost:4173/'); await b.sleep(1500);

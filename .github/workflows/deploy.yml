@@ -27,6 +27,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # Optional: set the repository variable SHEET_URL to build the sheet address into the app (see DEPLOY.md).
+          VITE_SHEET_URL: ${{ vars.SHEET_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

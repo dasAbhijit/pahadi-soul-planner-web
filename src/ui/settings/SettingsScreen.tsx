@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { backupFilename, decodeBackup, encodeBackup, ledgerCsv, restoreBackup, snapshot, type Backup } from '../../core/backup';
 import { syncSummary } from '../../core/cloudsync';
 import { fmtDate, fmtDateTime } from '../../core/fmt';
+import { encodeSheetParam } from '../../core/sheetsync';
 import { nowSecond } from '../../core/ids';
 import { useApp, useStore } from '../hooks';
 import { AlertBox, Card, Confirm, Field, InfoNote, OutlineButton, Page, PrimaryButton, pickTextFile, saveFile } from '../kit';
@@ -110,6 +111,7 @@ function AccountCard() {
   const app = useApp();
   useStore(app.account, app.settings);
   const [confirmOut, setConfirmOut] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const p = app.account.person;
   if (!p) return null;
   const since = app.account.signedInAt;
@@ -133,6 +135,15 @@ function AccountCard() {
           <OutlineButton text="Change password" onClick={() => nav.go(to.changePassword())} />
           <OutlineButton text="Sign out" danger onClick={() => setConfirmOut(true)} />
         </div>
+        {app.can('managePeople') ? (
+          <div class="stack">
+            <OutlineButton text={linkCopied ? 'Link copied' : 'Copy sign-in link'} onClick={async () => {
+              const link = `${location.origin}${location.pathname}#/signin?sheet=${encodeSheetParam(app.settings.syncUrl)}`;
+              try { await navigator.clipboard.writeText(link); setLinkCopied(true); } catch { window.prompt('Copy this sign-in link', link); }
+            }} />
+            <div class="tiny muted">Open it on a new phone or browser and the sheet address is already filled in. It holds the sheet address, so send it only to your team.</div>
+          </div>
+        ) : null}
         <div class="tiny muted">Signing out clears the bookings, money and vendors from this phone, so sync first. Your Gemini key is removed too.</div>
       </div>
       {confirmOut ? (

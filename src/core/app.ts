@@ -5,6 +5,12 @@ import { GeminiClient } from './gemini';
 import { nowSecond } from './ids';
 import { can, type Capability } from './roles';
 import { SheetSyncClient, SheetSyncError, validateAddress, type SessionReply } from './sheetsync';
+
+/**
+ * A sheet address built into this copy of the app (set as VITE_SHEET_URL when building), so people only type a name and
+ * password. Empty unless the build was given one.
+ */
+export const BUILT_IN_SHEET_URL: string = (import.meta.env.VITE_SHEET_URL as string | undefined)?.trim() ?? '';
 import { LocalKV, type KV } from './storage';
 import { Secrets, SettingsStore } from './settings';
 import { BookingStore, GuidanceStore, LedgerStore, TrekStore, VendorStore } from './stores';
@@ -36,6 +42,8 @@ export class AppContainer {
     this.chat = new Chat(this.settings, this.treks, this.guidance, this.vendors, this.secrets);
     // Seats left is capacity minus booked seats; settle it once at start, as a sync would.
     this.treks.reconcileSeats(this.bookings.bookings);
+    // A browser that has never been given an address starts with the one built into the app, if any.
+    if (this.settings.syncUrl === '' && validateAddress(BUILT_IN_SHEET_URL)) this.settings.setSyncUrl(BUILT_IN_SHEET_URL);
     // The sync secret an earlier version kept is not used any more.
     if (this.secrets.syncSecret !== null) this.secrets.setSyncSecret(null);
   }

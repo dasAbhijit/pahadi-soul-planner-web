@@ -66,6 +66,13 @@ Deploy the script with **Anyone** for "Who has access", as the setup steps say. 
 
 **Deploy the new `Code.gs` before the new web app reaches people**, or the app says the sheet's script is too old. Until the first Owner is created, old app versions keep working with the old secret code.
 
+### Not typing the sheet address on every new browser
+
+A browser remembers the sheet address after the first sign-in, and signing out keeps it. A **new** browser, a private window, another device, or the live site versus `localhost` each start empty, so they ask for it once. Two ways around that:
+
+- **Sign-in link (nothing is published):** an Owner opens **Settings > Copy sign-in link** and sends it to the team. Opening it fills in the address, and only a name and password are asked for. The link holds the sheet address, so send it only to your team.
+- **Built into the site (optional):** in the GitHub repository, **Settings > Secrets and variables > Actions > Variables**, add `SHEET_URL` with the web app address, then re-run the deploy. Every browser then starts with it. This puts the address in the public site's code, so anyone who reads it could call your script. Sign-in, lockout and roles still protect the data, but it removes one layer of obscurity. Leave it unset to avoid that.
+
 ## 7. Sending an update later
 
 Change the code, then:

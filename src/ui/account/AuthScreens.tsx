@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
-import { parseInvite, validateAddress, type SheetSyncError } from '../../core/sheetsync';
+import { decodeSheetParam, parseInvite, validateAddress, type SheetSyncError } from '../../core/sheetsync';
 import { useApp, useStore } from '../hooks';
-import { nav } from '../router';
+import { nav, useRoute } from '../router';
 import { Chip, Field, InfoNote, LinkButton, PrimaryButton } from '../kit';
 import { messageOf } from './shared';
 import './account.css';
@@ -28,7 +28,10 @@ const goHome = () => nav.replace('/chat');
 export function SignInScreen() {
   const app = useApp();
   useStore(app.settings);
-  const saved = app.settings.syncUrl;
+  // A sign-in link from an Owner (#/signin?sheet=...) carries the address, so only a name and password are needed.
+  const linked = decodeSheetParam(useRoute().query.get('sheet'));
+  if (linked !== null && app.settings.syncUrl !== linked) app.settings.setSyncUrl(linked);
+  const saved = linked ?? app.settings.syncUrl;
   const [address, setAddress] = useState(saved);
   const [showAddress, setShowAddress] = useState(validateAddress(saved) === null);
   const [name, setName] = useState('');
