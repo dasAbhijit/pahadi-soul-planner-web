@@ -29,3 +29,13 @@
 .sendbtn:disabled { opacity: .5; }
 .sendbtn.stop { background: var(--ink); color: #fff; font-size: 14px; }
 .keybar { display: flex; align-items: center; gap: 8px; background: var(--info-bg); color: var(--info-fg); font-size: 14px; padding: 4px 4px 4px 12px; border-radius: 12px; }
+.draft { border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.draft.pending { background: var(--proposal-bg); border: 2px solid var(--marigold); }
+.draft.closed { border: 1px dashed var(--field-border); background: var(--ground); color: var(--muted); padding: 10px 12px; font-size: 13px; }
+.draft.done { background: var(--info-bg); border: 1px solid var(--border); }
+.drow { display: flex; gap: 10px; line-height: 20px; }
+.drow .k { width: 84px; flex: none; color: var(--muted); }
+.drow span:last-child { white-space: pre-line; min-width: 0; overflow-wrap: anywhere; }
+.dsum { background: var(--ground); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-size: 13px; line-height: 19px; display: flex; flex-direction: column; gap: 2px; }
+.btn.danger-fill { background: var(--rust); border-color: var(--rust); }
+.notice { display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }

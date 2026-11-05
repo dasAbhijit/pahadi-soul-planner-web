@@ -12,7 +12,16 @@ interface Saved {
   userName?: string;
   lastSyncAt?: Instant;
   dismissedDuplicates?: string[];
+  /** Chat actions: off when false. On by default, but only once the person has read what goes to Gemini. */
+  chatActions?: boolean;
+  chatActionsNoticeSeen?: boolean;
+  /** What happened to the last drafts on this phone, newest last. Counted in Settings. Never synced. */
+  chatActionLog?: ChatActionLogEntry[];
 }
+
+export type ChatActionOutcome = 'approved' | 'edited' | 'denied';
+export interface ChatActionLogEntry { at: Instant; outcome: ChatActionOutcome }
+const MAX_ACTION_LOG = 200;
 
 const KEY = 'pahadi.settings';
 
@@ -51,6 +60,17 @@ export class SettingsStore extends Observable {
   /** Possible-duplicate payments staff chose to keep. Kept per phone, by the ids of the entries involved. */
   get dismissedDuplicates(): Set<string> { return new Set(this.data.dismissedDuplicates ?? []); }
 
+  /** Whether this person turned chat actions on (the default). */
+  get chatActionsOn(): boolean { return this.data.chatActions !== false; }
+  /** True once they have been shown what goes to Gemini. Drafting stays off until then. */
+  get chatActionsNoticeSeen(): boolean { return this.data.chatActionsNoticeSeen === true; }
+  get chatActionLog(): ChatActionLogEntry[] { return this.data.chatActionLog ?? []; }
+  setChatActions(v: boolean) { this.update({ chatActions: v ? undefined : false }); }
+  acknowledgeChatActionsNotice() { this.update({ chatActionsNoticeSeen: true }); }
+  logChatAction(outcome: ChatActionOutcome, at: Instant) {
+    this.update({ chatActionLog: [...this.chatActionLog, { at, outcome }].slice(-MAX_ACTION_LOG) });
+  }
+
   setSystemPrompt(v: string) { this.update({ systemPrompt: v }); }
   setModel(v: string) { this.update({ model: v }); }
   setLastBackupAt(v: Instant | undefined) { this.update({ lastBackupAt: v }); }
@@ -66,7 +86,7 @@ export class SettingsStore extends Observable {
 
   /** Forgets what belongs to the company or the person when someone signs out. The sheet address and model stay. */
   clearPersonal() {
-    this.update({ systemPrompt: undefined, lastBackupAt: undefined, lastSyncAt: undefined, dismissedDuplicates: undefined, userName: undefined });
+    this.update({ systemPrompt: undefined, lastBackupAt: undefined, lastSyncAt: undefined, dismissedDuplicates: undefined, userName: undefined, chatActionLog: undefined, chatActionsNoticeSeen: undefined });
   }
 }
 

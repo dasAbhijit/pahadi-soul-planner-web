@@ -7,15 +7,18 @@ import { useApp, useStore } from '../hooks';
 import { nav } from '../router';
 import { Stepper } from './shared';
 
-function ConfirmBookingScreenForm({ trekID }: { trekID: string }) {
+function ConfirmBookingScreenForm({ trekID, draftID }: { trekID: string; draftID?: string }) {
   const app = useApp();
   useStore(app.treks);
   const trek = app.treks.trek(trekID);
-  const [party, setParty] = useState(2);
-  const [names, setNames] = useState<string[]>(() => Array(MAX_PARTY).fill(''));
-  const [phone, setPhone] = useState('');
-  const [amountText, setAmountText] = useState('');
-  const [mode, setMode] = useState<PaymentMode>('UPI');
+  // Opened with Edit on a chat card: start from what the assistant drafted.
+  const draft = draftID ? app.chat.findDraft(draftID) : undefined;
+  const pre = draft && draft.state === 'pending' && draft.data.kind === 'booking' && draft.data.trekID === trekID ? draft.data : undefined;
+  const [party, setParty] = useState(pre ? Math.max(1, Math.min(MAX_PARTY, pre.travellers.length)) : 2);
+  const [names, setNames] = useState<string[]>(() => Array.from({ length: MAX_PARTY }, (_, i) => pre?.travellers[i] ?? ''));
+  const [phone, setPhone] = useState(pre?.phone ?? '');
+  const [amountText, setAmountText] = useState(pre?.amountReceived !== undefined ? String(pre.amountReceived) : '');
+  const [mode, setMode] = useState<PaymentMode>(pre?.mode ?? 'UPI');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (!trek) nav.back(); }, [trek]);
   if (!trek) return <Page title="Add booking"><div class="muted">This trek no longer exists.</div></Page>;
@@ -31,7 +34,8 @@ function ConfirmBookingScreenForm({ trekID }: { trekID: string }) {
       amount = Number(t);
     }
     try {
-      app.bookings.confirm({ trekID: trek!.id, travellers: names.slice(0, party), phone, amountReceived: amount, mode, trekStore: app.treks, ledger: app.ledger });
+      const b = app.bookings.confirm({ trekID: trek!.id, travellers: names.slice(0, party), phone, amountReceived: amount, mode, trekStore: app.treks, ledger: app.ledger });
+      if (pre && draftID) app.chat.draftSavedFromForm(draftID, `Booking added · ${b.travellers[0]}${b.travellers.length > 1 ? ` + ${b.travellers.length - 1}` : ''} · ${b.travellers.length} seat${b.travellers.length === 1 ? '' : 's'} on ${trek!.name}`);
       nav.back();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The booking could not be saved.');
@@ -42,6 +46,7 @@ function ConfirmBookingScreenForm({ trekID }: { trekID: string }) {
 
   return (
     <FormPage title="Add booking" saveLabel="Confirm" onSave={confirm}>
+      {pre ? <InfoNote>From chat. Check it, change anything, then confirm. If you leave without confirming, nothing is saved.</InfoNote> : null}
       <div class="muted" style="font-size:14px">{trek.name + when}</div>
 
       <div class="group" style="flex-direction:row;align-items:center;padding:6px 14px">
@@ -72,13 +77,13 @@ function ConfirmBookingScreenForm({ trekID }: { trekID: string }) {
         </div>
       ) : <InfoNote>Seats aren't tracked for this trek, so the count won't change.</InfoNote>}
 
-      <div class="tiny muted center">Names and phone numbers stay on this device. Only the seat count reaches the assistant.</div>
+      <div class="tiny muted center">Names and phone numbers entered here stay on this device. The assistant only gets what you type in chat.</div>
       {error ? <AlertBox title="Can't add booking" text={error} onDismiss={() => setError(null)} /> : null}
     </FormPage>
   );
 }
 
 /** Keyed by id, so opening a different record starts the form afresh. */
-export function ConfirmBookingScreen({ trekID }: { trekID: string }) {
-  return <ConfirmBookingScreenForm key={trekID} trekID={trekID} />;
+export function ConfirmBookingScreen({ trekID, draftID }: { trekID: string; draftID?: string }) {
+  return <ConfirmBookingScreenForm key={trekID + (draftID ?? '')} trekID={trekID} draftID={draftID} />;
 }

@@ -5,7 +5,7 @@ import { fmtDate, fmtDateTime } from '../../core/fmt';
 import { encodeSheetParam } from '../../core/sheetsync';
 import { nowSecond } from '../../core/ids';
 import { useApp, useStore } from '../hooks';
-import { AlertBox, Card, Confirm, Field, InfoNote, OutlineButton, Page, PrimaryButton, pickTextFile, saveFile } from '../kit';
+import { AlertBox, Card, Confirm, Field, InfoNote, OutlineButton, Page, PrimaryButton, SwitchRow, pickTextFile, saveFile } from '../kit';
 import { nav, to } from '../router';
 import { Avatar } from '../account/shared';
 import { Chip } from '../kit';
@@ -54,6 +54,8 @@ export function SettingsScreen() {
 
       <CloudSyncSection />
 
+      <ChatActionsCard />
+
       <Card>
         <div class="stack-lg">
           <div class="title">Gemini API key</div>
@@ -98,7 +100,7 @@ export function SettingsScreen() {
 
       {app.can('exportData') ? <DataSection /> : null}
 
-      <InfoNote>Messages go straight from this phone to Google. Free-tier keys may be used by Google to improve its models, so avoid putting client phone numbers or ID details in chats.</InfoNote>
+      <InfoNote>Messages go straight from this phone to Google. Free-tier keys may be used by Google to improve its models, so avoid putting ID details in chats. If you use chat actions, the names and phone numbers you type there are sent too.</InfoNote>
 
       <WebAppCard />
     </Page>
@@ -314,6 +316,37 @@ function WebAppCard() {
           <div class="small muted">In Chrome, open the menu (three dots) and tap Install app (or Add to Home screen).</div>
         </div>
         <div class="tiny muted">It works offline once opened. When a new version is ready a bar appears at the top; tap Update.</div>
+      </div>
+    </Card>
+  );
+}
+
+// ------------------------------------------------------------- Chat actions
+
+function ChatActionsCard() {
+  const app = useApp();
+  useStore(app.settings, app.account);
+  if (app.account.role === undefined) return null;
+  const week = Date.now() - 7 * 86_400_000;
+  const log = app.settings.chatActionLog.filter((e) => Date.parse(e.at) >= week);
+  const n = (o: 'approved' | 'edited' | 'denied') => log.filter((e) => e.outcome === o).length;
+  return (
+    <Card>
+      <div class="stack-lg">
+        <div class="title">Assistant</div>
+        <SwitchRow
+          title="Chat actions" checked={app.settings.chatActionsOn}
+          subtitle="Let the assistant prepare bookings and payments received from chat. You approve each one."
+          onChange={(v) => { app.settings.setChatActions(v); if (v) app.settings.acknowledgeChatActionsNotice(); }}
+        />
+        <div class="tiny muted">This switch is for this phone only. Nothing is saved until you tap Approve on a card.</div>
+        <div class="note"><span class="i">i</span><div class="grow small"><strong>What goes to Gemini:</strong> what you type in chat, including any names and phone numbers you type, plus the trek and vendor list. Bookings and payments already on this phone are not sent.</div></div>
+        <div class="stack">
+          <div class="small bold">Last 7 days on this phone</div>
+          <div class="kv"><span class="k">Approved</span><span>{n('approved')}</span></div>
+          <div class="kv"><span class="k">Edited first</span><span>{n('edited')}</span></div>
+          <div class="kv"><span class="k">Denied</span><span>{n('denied')}</span></div>
+        </div>
       </div>
     </Card>
   );

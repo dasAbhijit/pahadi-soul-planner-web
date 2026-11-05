@@ -18,6 +18,16 @@ The core in `src/core` is a port of the Android core, so the rules match: every 
 - **People and roles** are checked by the sheet's script as well as the app: Staff never receive money out or vendor rates. See [`cloud/README.md`](cloud/README.md).
 - Records written by the other apps are read as they are: uppercase UUIDs, ISO 8601 dates to the second, empty optionals left out. A row the web app cannot read stops the sync and changes nothing.
 
+## Chat actions (drafts the assistant prepares)
+
+In chat, staff can say "Book Rohit and Anita on Gorkhey 12 Dec, ₹5,000 UPI" or "Rohit paid 14000 UPI". Gemini calls a draft tool (`draft_booking`, `draft_payment_received`) and the app shows a **card**. Only a person's tap on **Approve** writes anything, through the same code as the Add booking and Add transaction forms. **Edit** opens that form filled in; **Deny** writes nothing. Typing "yes" does nothing: there is no tool that saves.
+
+- `src/core/chatactions.ts` holds the draft types, the tools offered per role, the checks (seats, amounts, one trip, duplicates, which traveller) and the write. `chat.ts` runs the cards; `prompt.ts` adds the CHAT ACTIONS rules and a reference (`[T3]`) to each trek line.
+- Gemini names a trek by that reference, never by id. The traveller for a payment is matched on the phone. Bookings, payments and phone numbers already saved are **not** sent to Gemini; what staff type in chat is.
+- Off until the person has read the notice (shown once in Chat) and on unless they switch it off in Settings. Per phone.
+- Tests: `test/chatactions.test.ts` (fake Gemini), `npm run e2e:chat` (real browser, fake Gemini). Gemini's own choice of tool and fields has **not** been tried on real chats yet.
+- Phase 1 is bookings and payments received. Trips, vendors and money out are designed (boards 43 to 53) and not built.
+
 ## Differences from the phone apps
 
 | | Phone apps | Web app |

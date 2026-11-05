@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "e2e": "node e2e/two-phones.mjs",
-    "tour": "node e2e/tour.mjs"
+    "tour": "node e2e/tour.mjs",
+    "e2e:chat": "node e2e/chat-actions.mjs"
   },
   "dependencies": {
     "preact": "^10.24.3"

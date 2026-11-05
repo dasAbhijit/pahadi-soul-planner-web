@@ -5,6 +5,7 @@ import { useApp, useStore } from '../hooks';
 import { AlertBox, Chip, FieldLabel, LinkButton, OutlineButton, Page, useToast } from '../kit';
 import { nav } from '../router';
 import { InlineMarkdown } from './Markdown';
+import { DraftCard } from './DraftCard';
 import './chat.css';
 
 async function copyText(text: string): Promise<boolean> {
@@ -25,7 +26,7 @@ async function copyText(text: string): Promise<boolean> {
 
 export function ChatScreen() {
   const app = useApp();
-  const chat = useStore(app.chat, app.treks, app.guidance, app.secrets);
+  const chat = useStore(app.chat, app.treks, app.guidance, app.secrets, app.settings, app.account);
   const [input, setInput] = useState('');
   const [ruleError, setRuleError] = useState<string | null>(null);
   const [toast, say] = useToast();
@@ -67,6 +68,12 @@ export function ChatScreen() {
         </div>
       ) : null}
       <div class="chat-chips">
+        {chat.actionsActive ? (
+          <>
+            <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Add a booking: '); boxRef.current?.focus(); }}>Add a booking</button>
+            <button type="button" class="pillbtn" disabled={chat.isSending} onClick={() => { setInput('Payment received: '); boxRef.current?.focus(); }}>Payment received</button>
+          </>
+        ) : null}
         {QUICK_PROMPTS.map((p) => (
           <button key={p.id} type="button" class="pillbtn" disabled={chat.isSending} onClick={() => send(p.text)}>{p.title}</button>
         ))}
@@ -109,6 +116,7 @@ export function ChatScreen() {
         </div>
       </div>
       <div class="chat-msgs">
+        {chat.actionsNeedNotice ? <ActionsNotice /> : null}
         {msgs.length === 0 ? (
           <div class="chat-intro">
             <div class="title">Ask about a trek or a client.</div>
@@ -143,6 +151,7 @@ function MessageRow(p: { m: ChatMessage; streaming: boolean; onCopy: () => void;
           <div class="text"><InlineMarkdown text={m.text} /></div>
         )}
         {m.proposal ? <ProposalCard p={m.proposal} onApply={p.onApply} onDismiss={p.onDismiss} /> : null}
+        {m.drafts?.map((d) => <DraftCard key={d.id} draft={d} />)}
       </div>
       {!m.isError && !streaming && m.text !== '' ? (
         <div class="msg-actions">
@@ -190,3 +199,20 @@ function ProposalCard(p: { p: Proposal; onApply: (text: string) => void; onDismi
   );
 }
 
+
+/** Shown once, before drafting starts: what Gemini is sent. */
+function ActionsNotice() {
+  const app = useApp();
+  return (
+    <div class="notice" role="region" aria-label="Chat actions">
+      <div class="title">Chat actions</div>
+      <div class="small">The assistant can prepare a booking or a payment received from what you type. You check the card and tap <strong>Approve</strong>, <strong>Edit</strong> or <strong>Deny</strong>. Nothing is saved until you approve.</div>
+      <div class="small"><strong>What goes to Gemini:</strong> what you type in chat, including any names and phone numbers you type, and the trek list. Bookings and payments already on this phone are not sent.</div>
+      <div class="row wrap" style="gap:8px">
+        <button type="button" class="btn small" style="width:auto" onClick={() => app.settings.acknowledgeChatActionsNotice()}>Turn on chat actions</button>
+        <LinkButton text="Not now" onClick={() => { app.settings.setChatActions(false); app.settings.acknowledgeChatActionsNotice(); }} />
+      </div>
+      <div class="tiny muted">You can change this any time in Settings.</div>
+    </div>
+  );
+}

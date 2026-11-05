@@ -39,7 +39,7 @@ export class AppContainer {
     this.ledger = new LedgerStore(kv);
     this.vendors = new VendorStore(kv);
     this.guidance = new GuidanceStore(kv);
-    this.chat = new Chat(this.settings, this.treks, this.guidance, this.vendors, this.secrets);
+    this.chat = new Chat(this.settings, this.treks, this.guidance, this.vendors, this.secrets, undefined, { bookings: this.bookings, ledger: this.ledger, role: () => this.account.role });
     // Seats left is capacity minus booked seats; settle it once at start, as a sync would.
     this.treks.reconcileSeats(this.bookings.bookings);
     // A browser that has never been given an address starts with the one built into the app, if any.

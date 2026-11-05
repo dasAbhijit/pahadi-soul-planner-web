@@ -1,3 +1,4 @@
+import { DRAFT_TOOLS, type FunctionDecl } from './chatactions';
 import { GUIDANCE_TOOL_NAME } from './prompt';
 
 export const DEFAULT_MODEL = 'gemini-flash-latest';
@@ -14,7 +15,9 @@ export interface GeminiMessage { role: GeminiRole; text: string }
 export type GeminiEvent =
   | { type: 'text'; text: string }
   /** The model wants to remember a rule about how it should behave. Nothing is saved until staff approve it. */
-  | { type: 'guidance'; rule: string };
+  | { type: 'guidance'; rule: string }
+  /** The assistant prepared a draft (booking, payment). Nothing is saved until a person approves it. */
+  | { type: 'draft'; tool: string; args: Record<string, unknown> };
 
 export class GeminiError extends Error {
   constructor(public code: 'invalidModel' | 'noKey' | 'http' | 'timeout' | 'network', message: string, public status = 0) {
@@ -41,6 +44,8 @@ export function parseSSELine(line: string): GeminiEvent[] {
     if (call && call.name === GUIDANCE_TOOL_NAME) {
       const rule = call.args?.rule;
       if (typeof rule === 'string' && rule.trim() !== '') out.push({ type: 'guidance', rule: rule.trim() });
+    } else if (call && typeof call.name === 'string' && DRAFT_TOOLS.includes(call.name) && call.args && typeof call.args === 'object' && !Array.isArray(call.args)) {
+      out.push({ type: 'draft', tool: call.name, args: call.args as Record<string, unknown> });
     }
   }
   return out;
@@ -66,24 +71,25 @@ export function shouldTryNextModel(e: unknown): boolean {
 }
 
 /** The pieces of a request, so it can be checked without a network. The API key goes in a header, never in the URL. */
-export function makeStreamRequest(apiKey: string, model: string, systemPrompt: string, history: GeminiMessage[], enableGuidanceTool = true): GeminiRequest {
+export function makeStreamRequest(apiKey: string, model: string, systemPrompt: string, history: GeminiMessage[], enableGuidanceTool = true, extraTools: FunctionDecl[] = []): GeminiRequest {
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: history.map((m) => ({ role: m.role, parts: [{ text: m.text }] })),
   };
+  const declarations: FunctionDecl[] = [];
   if (enableGuidanceTool) {
-    body.tools = [{
-      functionDeclarations: [{
-        name: GUIDANCE_TOOL_NAME,
-        description: 'Propose ONE short, self-contained rule about how the assistant should behave in all future conversations. Staff must approve it before it is saved.',
-        parameters: {
-          type: 'OBJECT',
-          properties: { rule: { type: 'STRING', description: 'The rule, written as a direct instruction.' } },
-          required: ['rule'],
-        },
-      }],
-    }];
+    declarations.push({
+      name: GUIDANCE_TOOL_NAME,
+      description: 'Propose ONE short, self-contained rule about how the assistant should behave in all future conversations. Staff must approve it before it is saved.',
+      parameters: {
+        type: 'OBJECT',
+        properties: { rule: { type: 'STRING', description: 'The rule, written as a direct instruction.' } },
+        required: ['rule'],
+      },
+    });
   }
+  declarations.push(...extraTools);
+  if (declarations.length > 0) body.tools = [{ functionDeclarations: declarations }];
   return {
     url: `${BASE}/models/${validatedModel(model)}:streamGenerateContent?alt=sse`,
     headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
@@ -91,7 +97,7 @@ export function makeStreamRequest(apiKey: string, model: string, systemPrompt: s
   };
 }
 
-export type Streamer = (apiKey: string, model: string, system: string, history: GeminiMessage[], signal?: AbortSignal) => AsyncIterable<GeminiEvent>;
+export type Streamer = (apiKey: string, model: string, system: string, history: GeminiMessage[], signal?: AbortSignal, tools?: FunctionDecl[]) => AsyncIterable<GeminiEvent>;
 
 /** Minimal Gemini REST client, called straight from the browser. */
 export class GeminiClient {
@@ -99,12 +105,12 @@ export class GeminiClient {
    * Streams text chunks and guidance proposals as Gemini produces them. If the chosen model is busy, slow or
    * retired, the next model in FALLBACK_MODELS is tried, but never once part of a reply has already been shown.
    */
-  async *stream(apiKey: string, model: string, systemPrompt: string, history: GeminiMessage[], signal?: AbortSignal): AsyncGenerator<GeminiEvent> {
+  async *stream(apiKey: string, model: string, systemPrompt: string, history: GeminiMessage[], signal?: AbortSignal, tools: FunctionDecl[] = []): AsyncGenerator<GeminiEvent> {
     const models = [...new Set([model, ...FALLBACK_MODELS])];
     for (let i = 0; i < models.length; i++) {
       let delivered = false;
       try {
-        for await (const ev of this.streamOnce(apiKey, models[i], systemPrompt, history, signal)) { delivered = true; yield ev; }
+        for await (const ev of this.streamOnce(apiKey, models[i], systemPrompt, history, signal, tools)) { delivered = true; yield ev; }
         return;
       } catch (e) {
         const isLast = i === models.length - 1;
@@ -113,8 +119,8 @@ export class GeminiClient {
     }
   }
 
-  private async *streamOnce(apiKey: string, model: string, systemPrompt: string, history: GeminiMessage[], signal?: AbortSignal): AsyncGenerator<GeminiEvent> {
-    const req = makeStreamRequest(apiKey, model, systemPrompt, history);
+  private async *streamOnce(apiKey: string, model: string, systemPrompt: string, history: GeminiMessage[], signal?: AbortSignal, tools: FunctionDecl[] = []): AsyncGenerator<GeminiEvent> {
+    const req = makeStreamRequest(apiKey, model, systemPrompt, history, true, tools);
     const ctl = new AbortController();
     let timedOut = false;
     const onAbort = () => ctl.abort();

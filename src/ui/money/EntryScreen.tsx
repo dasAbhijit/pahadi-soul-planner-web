@@ -33,16 +33,22 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
   const presetVendor = query.get('vendor') || undefined;
 
   const existing = useMemo(() => (entryID ? app.ledger.entries.find((e) => e.id === entryID) : undefined), [entryID]);
+  // Opened with Edit on a chat card: start from what the assistant drafted.
+  const draftID = query.get('draft') || undefined;
+  const pre = useMemo(() => {
+    const d = draftID ? app.chat.findDraft(draftID) : undefined;
+    return d && d.state === 'pending' && d.data.kind === 'paymentIn' ? d.data : undefined;
+  }, [draftID]);
 
   const vendor0 = existing?.vendorID ?? presetVendor;
   const booking0 = existing?.bookingID ?? presetBooking;
   const kind0 = existing?.kind ?? presetKind;
 
   const [kind, setKind] = useState<EntryKind>(kind0);
-  const [amountText, setAmountText] = useState(existing ? String(existing.amount) : '');
-  const [date, setDate] = useState<Instant | undefined>(existing?.date ?? toInstant(new Date()));
-  const [mode, setMode] = useState<PaymentMode>(existing?.mode ?? 'UPI');
-  const [note, setNote] = useState(existing?.note ?? '');
+  const [amountText, setAmountText] = useState(existing ? String(existing.amount) : pre?.amount !== undefined ? String(pre.amount) : '');
+  const [date, setDate] = useState<Instant | undefined>(existing?.date ?? pre?.date ?? toInstant(new Date()));
+  const [mode, setMode] = useState<PaymentMode>(existing?.mode ?? pre?.mode ?? 'UPI');
+  const [note, setNote] = useState(existing?.note ?? pre?.note ?? '');
   const [who, setWho] = useState<Who>(kind0 === 'Money in' ? 'traveller' : vendor0 === undefined && booking0 !== undefined ? 'traveller' : 'vendor');
   const [selected, setSelected] = useState<Id[]>(existing ? existing.shares.map((s) => s.trekID) : presetTrek ? [presetTrek] : []);
   const [shareText, setShareText] = useState<Record<string, string>>({});
@@ -123,7 +129,8 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
         const total = values.reduce((s, v) => s + v, 0);
         if (total !== amount) throw sharesMismatch(amount, total);
         const day = date ?? toInstant(new Date());
-        app.ledger.addAll(ids.map((id, i) => make(makeEntry({ date: day, kind, amount: values[i] }), id, values[i])));
+        const saved = app.ledger.addAll(ids.map((id, i) => make(makeEntry({ date: day, kind, amount: values[i] }), id, values[i])));
+        if (pre && draftID && saved.length === 1) app.chat.draftSavedFromForm(draftID, `Payment recorded · ${rupees(saved[0].amount)} by ${saved[0].mode} · ${saved[0].customerName ?? saved[0].party}`);
       }
       nav.back();
     } catch (e) {
@@ -169,6 +176,7 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
 
   return (
     <FormPage title={existing ? 'Edit transaction' : moneyInOnly ? 'Record payment received' : 'Add transaction'} onSave={save}>
+      {pre ? <InfoNote>From chat. Check it, change anything, then save. If you leave without saving, nothing is saved.</InfoNote> : null}
       {moneyInOnly ? null : <Segmented<EntryKind> options={ENTRY_KINDS.map((k) => ({ value: k, label: k }))} selected={kind} onSelect={changeKind} />}
       <Field label="Amount (₹)" value={amountText} onChange={(v) => setAmountText(digitsOnly(v))} placeholder="0" numeric />
       <DateField label="Date" value={date} onChange={(v) => v && setDate(v)} />

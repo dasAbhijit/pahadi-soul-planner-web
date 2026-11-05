@@ -43,6 +43,20 @@ export async function launch({ url, width = 390, height = 844, out = '.', port =
       };
       await send('Fetch.enable', { patterns: [{ urlPattern: 'https://script.google.com/*' }] });
     },
+    // Answer requests by URL prefix. Each route is { prefix, respond(request) -> { status?, headers?, body } }. CORS preflights are answered too.
+    async route(routes) {
+      handlers['Fetch.requestPaused'] = (p) => {
+        const r = routes.find((x) => p.request.url.startsWith(x.prefix));
+        const cors = [{ name: 'Access-Control-Allow-Origin', value: '*' }, { name: 'Access-Control-Allow-Headers', value: '*' }, { name: 'Access-Control-Allow-Methods', value: 'POST, GET, OPTIONS' }];
+        if (!r) return send('Fetch.continueRequest', { requestId: p.requestId });
+        if (p.request.method === 'OPTIONS') return send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 204, responseHeaders: cors, body: '' });
+        const out = r.respond({ url: p.request.url, body: p.request.postData || '', headers: p.request.headers });
+        send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: out.status ?? 200,
+          responseHeaders: [...cors, ...Object.entries(out.headers ?? { 'Content-Type': 'application/json' }).map(([name, value]) => ({ name, value }))],
+          body: Buffer.from(out.body).toString('base64') });
+      };
+      await send('Fetch.enable', { patterns: routes.map((x) => ({ urlPattern: x.prefix + '*' })) });
+    },
     async go(u) { await send('Page.navigate', { url: u }); await sleep(900); },
     async ev(expr) { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'eval failed: ' + expr); return r.result.result.value; },
     async shot(name) { const r = await send('Page.captureScreenshot', { format: 'png' }); writeFileSync(join(out, name + '.png'), Buffer.from(r.result.data, 'base64')); },

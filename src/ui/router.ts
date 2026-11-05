@@ -57,7 +57,7 @@ export const to = {
   trek: (id: string) => `/trek/${id}`,
   editTrek: (id?: string) => `/edit-trek/${id ?? 'new'}`,
   duplicateTrek: (id: string) => `/duplicate/${id}`,
-  addBooking: (trekID: string) => `/booking/${trekID}`,
+  addBooking: (trekID: string, draft?: string) => `/booking/${trekID}${draft ? `?draft=${draft}` : ''}`,
   vendor: (id: string) => `/vendor/${id}`,
   editVendor: (id?: string) => `/edit-vendor/${id ?? 'new'}`,
   prompt: () => '/prompt',
@@ -66,13 +66,14 @@ export const to = {
   changePassword: () => '/change-password',
   duplicates: () => '/duplicates',
   /** Add or edit a transaction. `kind` is 'in' or 'out'. */
-  entry: (o: { entry?: string; kind?: 'in' | 'out'; trek?: string; booking?: string; vendor?: string } = {}) => {
+  entry: (o: { entry?: string; kind?: 'in' | 'out'; trek?: string; booking?: string; vendor?: string; draft?: string } = {}) => {
     const q = new URLSearchParams();
     if (o.entry) q.set('entry', o.entry);
     q.set('kind', o.kind ?? 'in');
     if (o.trek) q.set('trek', o.trek);
     if (o.booking) q.set('booking', o.booking);
     if (o.vendor) q.set('vendor', o.vendor);
+    if (o.draft) q.set('draft', o.draft);
     return `/entry?${q.toString()}`;
   },
 };
