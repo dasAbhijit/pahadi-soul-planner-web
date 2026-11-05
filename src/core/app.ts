@@ -123,6 +123,16 @@ export class AppContainer {
     }
   }
 
+  /** Runs a request that needs the signed-in session. If the sheet says the session is over, the phone is cleared first. */
+  async withSession<T>(fn: (address: string, session: string) => Promise<T>): Promise<T> {
+    const session = this.account.session;
+    if (session === null) throw new SheetSyncError('notSignedIn');
+    try { return await fn(this.settings.syncUrl, session); } catch (e) {
+      if (e instanceof SheetSyncError && e.code === 'sessionEnded') this.sessionEnded(e.reason);
+      throw e;
+    }
+  }
+
   /** The sheet said this session is over. `unknown` (a damaged or unknown code) signs out without the explanation screen. */
   sessionEnded(reason: SheetSyncError['reason']) {
     this.clearCompanyData();

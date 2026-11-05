@@ -10,6 +10,7 @@ const EmptyRow = (p: { text: string }) => <div class="small muted" style="paddin
 type Footer = 'seats' | 'again' | 'none';
 
 function TrekCard({ t, footer }: { t: Trek; footer: Footer }) {
+  const app = useApp();
   const timing = trekTiming(t);
   return (
     <Card class="flush">
@@ -28,7 +29,7 @@ function TrekCard({ t, footer }: { t: Trek; footer: Footer }) {
           <div class="grow small muted">
             {footer === 'seats' ? (t.seatsLeft !== undefined ? (t.seatsLeft === 0 ? 'Sold out' : `Seats left ${t.seatsLeft}`) : 'Seats not tracked') : 'Running it again?'}
           </div>
-          <LinkButton text="Duplicate" onClick={() => nav.go(to.duplicateTrek(t.id))} />
+          {app.can('editTreks') ? <LinkButton text="Duplicate" onClick={() => nav.go(to.duplicateTrek(t.id))} /> : null}
         </div>
       ) : null}
     </Card>
@@ -37,12 +38,12 @@ function TrekCard({ t, footer }: { t: Trek; footer: Footer }) {
 
 export function TreksScreen() {
   const app = useApp();
-  useStore(app.treks);
+  useStore(app.treks, app.account);
   const upcoming = app.treks.upcoming();
   const undated = app.treks.undated();
   const past = app.treks.past();
   return (
-    <Page tab title="Treks" trailing={<button class="iconbtn" type="button" aria-label="Add trek" onClick={() => nav.go(to.editTrek())}>+</button>}>
+    <Page tab title="Treks" trailing={app.can('editTreks') ? <button class="iconbtn" type="button" aria-label="Add trek" onClick={() => nav.go(to.editTrek())}>+</button> : undefined}>
       <SectionLabel>{`UPCOMING · ${upcoming.length}`}</SectionLabel>
       {upcoming.length === 0 ? <EmptyRow text="Nothing scheduled. Tap + to add the next batch." /> : null}
       {upcoming.map((t) => <TrekCard key={t.id} t={t} footer="seats" />)}

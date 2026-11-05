@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp, useStore } from '../hooks';
 import { nav } from '../router';
+import { canEditEntry } from '../../core/roles';
+import { Page } from '../kit';
 import { AlertBox, ChoiceRow, Confirm, DateField, Field, FieldLabel, FormPage, InfoNote, LinkButton, PickerRow, Segmented, digitsOnly } from '../kit';
 import { fmtDate, rupees } from '../../core/fmt';
 import { toInstant, type Id, type Instant } from '../../core/ids';
@@ -23,7 +25,9 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
   useStore(app.ledger, app.treks, app.bookings, app.vendors);
 
   const entryID = query.get('entry') || undefined;
-  const presetKind: EntryKind = query.get('kind') === 'out' ? 'Money out' : 'Money in';
+  // Staff can only record payments received.
+  const moneyInOnly = !app.can('seeMoneyOut');
+  const presetKind: EntryKind = query.get('kind') === 'out' && !moneyInOnly ? 'Money out' : 'Money in';
   const presetTrek = query.get('trek') || undefined;
   const presetBooking = query.get('booking') || undefined;
   const presetVendor = query.get('vendor') || undefined;
@@ -48,6 +52,7 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const blocked = existing !== undefined && !canEditEntry(app.account.role, app.account.myId, existing);
   const isCredit = kind === 'Money in';
   const multi = !isCredit && !existing; // tick several trips: one entry each
   const allTreks = [...app.treks.upcoming(), ...app.treks.undated(), ...app.treks.past()];
@@ -160,9 +165,11 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
 
   const left = amount - assigned;
 
+  if (blocked) return <Page title="Transaction"><InfoNote tone="warn">You can only change payments you recorded yourself. Ask a Manager or an Owner.</InfoNote></Page>;
+
   return (
-    <FormPage title={existing ? 'Edit transaction' : 'Add transaction'} onSave={save}>
-      <Segmented<EntryKind> options={ENTRY_KINDS.map((k) => ({ value: k, label: k }))} selected={kind} onSelect={changeKind} />
+    <FormPage title={existing ? 'Edit transaction' : moneyInOnly ? 'Record payment received' : 'Add transaction'} onSave={save}>
+      {moneyInOnly ? null : <Segmented<EntryKind> options={ENTRY_KINDS.map((k) => ({ value: k, label: k }))} selected={kind} onSelect={changeKind} />}
       <Field label="Amount (₹)" value={amountText} onChange={(v) => setAmountText(digitsOnly(v))} placeholder="0" numeric />
       <DateField label="Date" value={date} onChange={(v) => v && setDate(v)} />
       <PickerRow title="Paid by" value={mode} options={PAYMENT_MODES.map((m) => ({ value: m, label: m }))} onSelect={setMode} />
@@ -207,7 +214,7 @@ export function EntryScreen({ query }: { query: URLSearchParams }) {
 
       <Field label="Note" value={note} onChange={setNote} placeholder="optional" />
       <InfoNote>Every transaction needs a trip and a traveller or vendor. A cost for several trips is saved as one entry per trip.</InfoNote>
-      {existing ? <LinkButton text="Delete transaction" danger onClick={() => setConfirmDelete(true)} /> : null}
+      {existing && app.can('editAnyRecord') ? <LinkButton text="Delete transaction" danger onClick={() => setConfirmDelete(true)} /> : null}
 
       {confirmDelete ? (
         <Confirm title="Delete this transaction?" message="The fund balance, trip totals and vendor balance will change." confirmLabel="Delete" cancelLabel="Keep" danger

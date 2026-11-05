@@ -22,6 +22,7 @@ export function PromptScreen() {
   const [error, setError] = useState<string | null>(null);
   const rules = app.guidance.rules;
   const prompt = app.settings.systemPrompt;
+  const canEditBase = app.can('editPrompt');
 
   const saveRule = () => {
     if (!editing) return;
@@ -42,13 +43,13 @@ export function PromptScreen() {
       {tab === 'base' ? (
         <>
           <textarea
-            class="textarea" style="min-height:52dvh" value={prompt} aria-label="Base instructions" spellcheck={false}
+            class="textarea" style="min-height:52dvh" value={prompt} aria-label="Base instructions" spellcheck={false} readOnly={!canEditBase}
             onInput={(e) => app.settings.setSystemPrompt((e.target as HTMLTextAreaElement).value)}
           />
-          <InfoNote>Edits apply to the next message. The trek catalogue is added automatically after these instructions, with today's date.</InfoNote>
+          <InfoNote>{canEditBase ? "Edits apply to the next message. The trek catalogue is added automatically after these instructions, with today's date." : 'Only an Owner can change the base instructions. You can add and edit learned rules.'}</InfoNote>
           <div class="btnrow">
             <PrimaryButton text="Preview full prompt" onClick={() => setShowPreview(true)} />
-            <OutlineButton text="Reset to default" block onClick={() => setConfirmReset(true)} disabled={prompt === DEFAULT_SYSTEM_PROMPT} />
+            {canEditBase ? <OutlineButton text="Reset to default" block onClick={() => setConfirmReset(true)} disabled={prompt === DEFAULT_SYSTEM_PROMPT} /> : null}
           </div>
         </>
       ) : (

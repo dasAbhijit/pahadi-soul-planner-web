@@ -61,7 +61,9 @@ export const to = {
   vendor: (id: string) => `/vendor/${id}`,
   editVendor: (id?: string) => `/edit-vendor/${id ?? 'new'}`,
   prompt: () => '/prompt',
-  cloudSetup: () => '/cloud-setup',
+  people: () => '/people',
+  invite: () => '/invite',
+  changePassword: () => '/change-password',
   duplicates: () => '/duplicates',
   /** Add or edit a transaction. `kind` is 'in' or 'out'. */
   entry: (o: { entry?: string; kind?: 'in' | 'out'; trek?: string; booking?: string; vendor?: string } = {}) => {

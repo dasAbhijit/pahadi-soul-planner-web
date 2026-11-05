@@ -56,13 +56,15 @@ The workflow runs the tests first. If a test fails, nothing is published.
 
 Unlike the sideloaded iPhone app, this install does not expire after 7 days.
 
-## 6. Connect the Google Sheet
+## 6. Connect the Google Sheet and sign in
 
-Follow `cloud/README.md` (the same script as the iPhone and Android apps). Then on each phone, in **Settings > Cloud sync**: enter your name, open **Sheet address and secret code**, paste the address and secret, tap **Save**, then **Test connection**.
+Follow `cloud/README.md` (the same script as the iPhone and Android apps): paste `Code.gs`, add the `PAHADI_TOKEN` setup code, deploy as a web app, then in the app choose **Set up the first Owner**. Add everyone else from **Settings > People**; they join with an invite and choose their own password.
 
-**Test this on each kind of phone before you rely on it.** A web page can read Google's reply only if Google allows it, and this has not been tried against your sheet yet. If **Test connection** says it could not reach Google even though the address and secret are right, cloud sync does not work from that browser. The rest of the app still works, and **Export all data** is your backup. Tell me and I will look at a fix.
+**Test this on each kind of phone before you rely on it.** A web page can read Google's reply only if Google allows it, and this has not been tried against your sheet yet. If signing in says it could not reach Google even though the address is right, cloud sync does not work from that browser. The rest of the app still works only for people who are already signed in on that phone, and **Export all data** is your backup. Tell me and I will look at a fix.
 
 Deploy the script with **Anyone** for "Who has access", as the setup steps say. A browser has no Google login to offer, so any other setting leaves it unable to read the reply.
+
+**Deploy the new `Code.gs` before the new web app reaches people**, or the app says the sheet's script is too old. Until the first Owner is created, old app versions keep working with the old secret code.
 
 ## 7. Sending an update later
 
@@ -80,7 +82,7 @@ GitHub rebuilds and publishes in a minute or two. A phone that opens the app, or
 
 - It lives in each phone's browser storage, in the installed app. Clearing the browser's site data for the address, or deleting the Home Screen app on iPhone, erases it. Sync to the sheet and export a backup now and then.
 - The app asks the browser to keep its data even when the phone is short of space. Browsers may say no.
-- The Gemini key and the sheet secret sit in that same storage, unencrypted. They are left out of backups and never go into the sheet. Anyone who can unlock the phone and open the browser's developer tools could read them. Use a Gemini key limited to this use, and delete it in Google AI Studio if a phone is lost.
+- The Gemini key and the session code sit in that same storage, unencrypted. They are left out of backups and never go into the sheet. Anyone who can unlock the phone and open the browser's developer tools could read them. Signing out removes them and the company data. Use a Gemini key limited to this use, and delete it in Google AI Studio if a phone is lost.
 - A backup file from the web app restores into the iPhone and Android apps, and the other way round.
 
 ## Other free hosts

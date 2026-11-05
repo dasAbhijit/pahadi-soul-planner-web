@@ -1,5 +1,6 @@
 import { amountIn, type LedgerEntry, type LedgerScope } from '../../core/models';
 import { fmtDate, rupees } from '../../core/fmt';
+import { useBy } from '../account/shared';
 import './treks.css';
 
 /** A small figure with a title above it, used in the finance summaries. */
@@ -29,6 +30,7 @@ export function Stepper(p: { value: number; min: number; max: number; onChange: 
  */
 export function EntryRow(p: { entry: LedgerEntry; scope?: LedgerScope; onClick: () => void }) {
   const e = p.entry;
+  const by = useBy().first(e);
   const scope = p.scope ?? { type: 'all' as const };
   const isIn = e.kind === 'Money in';
   const title = (e.vendorName || undefined) ?? (e.customerName || undefined) ?? (e.party || e.kind);
@@ -38,6 +40,7 @@ export function EntryRow(p: { entry: LedgerEntry; scope?: LedgerScope; onClick: 
   else parts.push(`${e.shares.length} trips`);
   if (e.customerName && e.party !== '' && e.party !== e.customerName) parts.unshift(e.party);
   if (e.vendorName && e.vendorName !== e.party) parts.unshift(e.vendorName);
+  if (by) parts.push(by);
   const shown = amountIn(e, scope);
   return (
     <div class="card tap entry" role="button" onClick={p.onClick}>

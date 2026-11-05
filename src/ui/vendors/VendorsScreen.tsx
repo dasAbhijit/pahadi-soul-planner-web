@@ -8,13 +8,14 @@ import { TagChips } from './shared';
 
 export function VendorsScreen() {
   const app = useApp();
-  useStore(app.vendors, app.ledger);
+  useStore(app.vendors, app.ledger, app.account);
+  const money = app.can('seeVendorRates');
   const [query, setQuery] = useState('');
   const [service, setService] = useState<ServiceType | null>(null);
   const list = app.vendors.search(query, service ?? undefined);
 
   return (
-    <Page tab title="Vendors" trailing={<button class="iconbtn" type="button" aria-label="Add vendor" onClick={() => nav.go(to.editVendor())}>+</button>}>
+    <Page tab title="Vendors" trailing={app.can('editVendors') ? <button class="iconbtn" type="button" aria-label="Add vendor" onClick={() => nav.go(to.editVendor())}>+</button> : undefined}>
       <input class="input" type="search" value={query} placeholder="Search name, service or tag" autoComplete="off" autoCorrect="off" spellcheck={false}
         onInput={(e) => setQuery((e.target as HTMLInputElement).value)} />
       <div class="pills">
@@ -27,7 +28,7 @@ export function VendorsScreen() {
         ? <div class="muted" style="font-size:14px">No vendors yet. Tap + to add a guide, stay, transport or anyone you pay. The assistant will suggest from this list.</div>
         : list.length === 0 ? <div class="muted" style="font-size:14px">No vendors match.</div> : null}
       {list.map((v) => {
-        const owed = app.ledger.statement(v).owed;
+        const owed = money ? app.ledger.statement(v).owed : 0;
         return (
           <Card key={v.id} onClick={() => nav.go(to.vendor(v.id))}>
             <div class="stack">
@@ -35,7 +36,7 @@ export function VendorsScreen() {
                 <div class="grow bold break" style="font-size:16px">{v.name}</div>
                 <Chip text={v.service.toUpperCase()} />
               </div>
-              <div class="small muted">{vendorRateText(v) ?? 'Rate not set'}</div>
+              {money ? <div class="small muted">{vendorRateText(v) ?? 'Rate not set'}</div> : (v.phone ? <div class="small muted">{v.phone}</div> : null)}
               {v.tags.length > 0 ? <TagChips tags={v.tags} /> : null}
               {owed > 0 ? <div><Chip text={`${rupees(owed)} OWED`} tone="amber" /></div> : null}
             </div>

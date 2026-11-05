@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'preact/hooks';
 import { backupFilename, decodeBackup, encodeBackup, ledgerCsv, restoreBackup, snapshot, type Backup } from '../../core/backup';
-import { runCloudSync, syncSummary } from '../../core/cloudsync';
+import { syncSummary } from '../../core/cloudsync';
 import { fmtDate, fmtDateTime } from '../../core/fmt';
 import { nowSecond } from '../../core/ids';
-import { validateAddress } from '../../core/sheetsync';
 import { useApp, useStore } from '../hooks';
 import { AlertBox, Card, Confirm, Field, InfoNote, OutlineButton, Page, PrimaryButton, pickTextFile, saveFile } from '../kit';
 import { nav, to } from '../router';
+import { Avatar } from '../account/shared';
+import { Chip } from '../kit';
 import { APP_VERSION } from '../version';
 import { Status, type StatusLine } from './Status';
 import './settings.css';
@@ -36,6 +37,22 @@ export function SettingsScreen() {
 
   return (
     <Page title="Settings" tab>
+      <AccountCard />
+
+      {app.can('managePeople') ? (
+        <Card onClick={() => nav.go(to.people())}>
+          <div class="row">
+            <div class="grow">
+              <div class="title">People</div>
+              <div class="small muted">Invite people, change roles, remove access</div>
+            </div>
+            <span class="chev">›</span>
+          </div>
+        </Card>
+      ) : null}
+
+      <CloudSyncSection />
+
       <Card>
         <div class="stack-lg">
           <div class="title">Gemini API key</div>
@@ -50,66 +67,100 @@ export function SettingsScreen() {
             <OutlineButton text="Remove" danger disabled={!hasKey} onClick={() => { app.secrets.setGeminiKey(null); setKeyInput(''); setStatus({ text: 'Key removed from this browser.', ok: true }); }} />
           </div>
           <div class="tiny muted">
-            A browser has no secure vault like the phone apps do, so the key sits unencrypted in this browser's own storage. It is never put in a backup or the sheet, and is sent nowhere except to Google when you chat. Anyone who can open this browser on an unlocked phone could read it.
+            A browser has no secure vault like the phone apps do, so the key sits unencrypted in this browser's own storage. It is never put in a backup or the sheet, and is sent nowhere except to Google when you chat. Signing out removes it. Anyone who can open this browser on an unlocked phone could read it.
           </div>
           <div><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="bold small">Get a key from Google AI Studio</a></div>
         </div>
       </Card>
 
-      <Card>
-        <div class="stack-lg">
-          <div class="title">Model</div>
-          <Field label="Gemini model name" value={app.settings.model} onChange={(v) => app.settings.setModel(v)} placeholder="gemini-flash-latest" />
-          <div class="small muted">Change this when Google retires or releases a model. No app update needed. If the model is busy or retired, the app tries gemini-flash-lite-latest instead.</div>
-        </div>
-      </Card>
+      {app.can('editRules') ? (
+        <>
+          <Card>
+            <div class="stack-lg">
+              <div class="title">Model</div>
+              <Field label="Gemini model name" value={app.settings.model} onChange={(v) => app.settings.setModel(v)} placeholder="gemini-flash-latest" />
+              <div class="small muted">Change this when Google retires or releases a model. No app update needed. If the model is busy or retired, the app tries gemini-flash-lite-latest instead.</div>
+            </div>
+          </Card>
 
-      <Card onClick={() => nav.go(to.prompt())}>
-        <div class="row">
-          <div class="grow">
-            <div class="title">Assistant prompt</div>
-            <div class="small muted">Base instructions and {rules} learned rule{rules === 1 ? '' : 's'}</div>
-          </div>
-          <span class="chev">›</span>
-        </div>
-      </Card>
+          <Card onClick={() => nav.go(to.prompt())}>
+            <div class="row">
+              <div class="grow">
+                <div class="title">Assistant prompt</div>
+                <div class="small muted">Base instructions and {rules} learned rule{rules === 1 ? '' : 's'}</div>
+              </div>
+              <span class="chev">›</span>
+            </div>
+          </Card>
+        </>
+      ) : null}
 
-      <DataSection />
+      {app.can('exportData') ? <DataSection /> : null}
 
       <InfoNote>Messages go straight from this phone to Google. Free-tier keys may be used by Google to improve its models, so avoid putting client phone numbers or ID details in chats.</InfoNote>
-
-      <CloudSyncSection />
 
       <WebAppCard />
     </Page>
   );
 }
 
+// ------------------------------------------------------------------- Account
+
+function AccountCard() {
+  const app = useApp();
+  useStore(app.account, app.settings);
+  const [confirmOut, setConfirmOut] = useState(false);
+  const p = app.account.person;
+  if (!p) return null;
+  const since = app.account.signedInAt;
+  const last = app.settings.lastSyncAt;
+  return (
+    <Card>
+      <div class="stack-lg">
+        <div class="row">
+          <Avatar name={p.name} large />
+          <div class="grow">
+            <div class="title">{p.name}</div>
+            <div class="row" style="gap:8px"><Chip text={p.role.toUpperCase()} tone={p.role === 'Staff' ? 'neutral' : p.role === 'Manager' ? 'amber' : 'green'} /><span class="small ok">Signed in</span></div>
+          </div>
+        </div>
+        <div class="stack">
+          {since ? <div class="kv"><span class="k">Since</span><span>{fmtDate(since)}</span></div> : null}
+          <div class="kv"><span class="k">Sheet</span><span>{app.account.sheetName ?? 'Connected'}</span></div>
+          <div class="kv"><span class="k">Last sync</span><span>{last ? fmtDateTime(last) : 'Not synced yet'}</span></div>
+        </div>
+        <div class="btnrow">
+          <OutlineButton text="Change password" onClick={() => nav.go(to.changePassword())} />
+          <OutlineButton text="Sign out" danger onClick={() => setConfirmOut(true)} />
+        </div>
+        <div class="tiny muted">Signing out clears the bookings, money and vendors from this phone, so sync first. Your Gemini key is removed too.</div>
+      </div>
+      {confirmOut ? (
+        <Confirm
+          title="Sign out?" confirmLabel="Sign out and clear this phone" danger onDismiss={() => setConfirmOut(false)}
+          message="The treks, bookings, money, vendors and your Gemini key are removed from this phone. Anything not synced yet is lost. Sync first if you are online."
+          onConfirm={() => { app.signOut(); }}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
 // ---------------------------------------------------------------- Cloud sync
 
-/** Everything stays on this phone and works offline; this button sends a full copy to the Google Sheet when online. */
+/** Everything stays on this phone and works offline; this button swaps changes with the Google Sheet when online. */
 function CloudSyncSection() {
   const app = useApp();
-  useStore(app.settings, app.secrets);
+  useStore(app.settings, app.account);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<StatusLine>(null);
-  const url = app.settings.syncUrl;
-  const name = app.settings.userName;
   const last = app.settings.lastSyncAt;
-  const secret = app.secrets.syncSecret;
-  const configured = secret !== null && validateAddress(url) !== null;
 
   const sync = async () => {
-    if (secret === null) { nav.go(to.cloudSetup()); return; }
     setSyncing(true);
     try {
-      const report = await runCloudSync({
-        address: url, token: secret, user: name, device: app.deviceName,
-        treks: app.treks, bookings: app.bookings, ledger: app.ledger, vendors: app.vendors, guidance: app.guidance,
-        dismissedDuplicates: app.settings.dismissedDuplicates,
-      });
-      app.settings.setLastSyncAt(nowSecond());
-      setStatus({ text: syncSummary(report), ok: report.overbooked.length === 0 });
+      const report = await app.sync();
+      setStatus({ text: syncSummary(report), ok: report.overbooked.length === 0 && report.refused.length === 0 });
     } catch (e) {
       setStatus({ text: (e instanceof Error && e.message) || 'The sync failed.', ok: false });
     }
@@ -120,24 +171,13 @@ function CloudSyncSection() {
     <Card>
       <div class="stack-lg">
         <div class="title">Cloud sync</div>
-        <div class="small muted">Your data lives on this phone and works offline. Tap Sync to cloud when you are online: the app reads the Google Sheet, merges it with this phone, and writes the result back.</div>
-        <div class="stack">
-          <Field label="Your name" value={name} onChange={(v) => app.settings.setUserName(v)} placeholder="For example Meera" words maxLength={40} />
-          <div class="tiny muted">Shown in the sheet's Sync log, so the team can see who sent the latest copy.</div>
-        </div>
+        <div class="kv"><span class="k">Signed in as</span><span>{app.account.person?.name}</span></div>
         <Status
-          s={status ?? (last ? { text: `Last sent ${fmtDateTime(last)}`, ok: true } : null)}
-          fallback={configured ? 'Not sent yet' : 'Not set up yet'}
+          s={status ?? (last ? { text: `Last sync ${fmtDateTime(last)}`, ok: true } : null)}
+          fallback="Not synced yet"
         />
-        <PrimaryButton
-          text={syncing ? 'Syncing…' : configured ? 'Sync to cloud' : 'Set up cloud sync'}
-          disabled={syncing} onClick={() => (configured ? sync() : nav.go(to.cloudSetup()))}
-        />
-        <button type="button" class="btn link" style="width:100%;justify-content:space-between;display:flex;align-items:center;padding:0" onClick={() => nav.go(to.cloudSetup())}>
-          <span class="bold" style="font-size:15px">Sheet address and secret code</span>
-          <span class="chev">›</span>
-        </button>
-        <div class="tiny muted">Sync merges this phone with the sheet. What others added comes to this phone, the latest edit of a record wins, and nothing is removed unless someone deleted it. The sheet holds traveller names, phone numbers and payments, so keep it private. Your Gemini key is never sent.</div>
+        <PrimaryButton text={syncing ? 'Syncing…' : 'Sync now'} disabled={syncing} onClick={sync} />
+        <div class="tiny muted">Your data lives on this phone and works offline. Sync swaps changes with the Google Sheet: what others added comes here, your changes go there, and the latest edit of a record wins. Your name comes from your account. The sheet holds traveller names, phone numbers and payments, so keep it private. Your Gemini key is never sent.</div>
       </div>
     </Card>
   );
@@ -174,7 +214,7 @@ function DataSection() {
   };
 
   const exportCsv = async () => {
-    try { await saveFile('PahadiSoul-transactions.csv', 'text/csv', ledgerCsv(app.ledger.entries)); }
+    try { await saveFile('PahadiSoul-transactions.csv', 'text/csv', ledgerCsv(app.ledger.entries, (id) => app.account.nameOf(id))); }
     catch (e) { setNotice({ title: "Couldn't save the file", text: e instanceof Error ? e.message : 'The file could not be written.' }); }
   };
 
@@ -197,7 +237,7 @@ function DataSection() {
           : <div class="status bad">⚠ No backup yet. Clearing this browser's data erases everything.</div>}
         <PrimaryButton text="Export all data" onClick={exportAll} />
         <div class="btnrow">
-          <OutlineButton text="Restore" onClick={restore} />
+          {app.can('restoreBackup') ? <OutlineButton text="Restore" onClick={restore} /> : null}
           <OutlineButton text="Transactions CSV" onClick={exportCsv} />
         </div>
         <div class="tiny muted">The backup holds treks, bookings, payments, vendors, learned rules and the prompt, including traveller names and phone numbers. It never holds your Gemini key or sync secret. Keep it private. The file also opens on the iPhone and Android apps.</div>

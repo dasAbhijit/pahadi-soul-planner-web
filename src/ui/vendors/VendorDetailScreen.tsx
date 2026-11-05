@@ -15,8 +15,9 @@ function tripText(l: TripLine): string {
 
 export function VendorDetailScreen({ id }: { id: string }) {
   const app = useApp();
-  useStore(app.vendors, app.ledger);
+  useStore(app.vendors, app.ledger, app.account);
   const v = app.vendors.vendor(id);
+  const money = app.can('seeVendorRates');
   if (!v) return <Page title="Vendor"><div class="muted">This vendor no longer exists.</div></Page>;
 
   const st = app.ledger.statement(v);
@@ -26,15 +27,15 @@ export function VendorDetailScreen({ id }: { id: string }) {
   return (
     <Page
       title={v.name}
-      trailing={<LinkButton text="Edit" onClick={() => nav.go(to.editVendor(v.id))} />}
-      footer={<PrimaryButton text="↗  Record payout" onClick={() => nav.go(to.entry({ kind: 'out', vendor: v.id }))} />}
+      trailing={app.can('editVendors') ? <LinkButton text="Edit" onClick={() => nav.go(to.editVendor(v.id))} /> : undefined}
+      footer={money ? <PrimaryButton text="↗  Record payout" onClick={() => nav.go(to.entry({ kind: 'out', vendor: v.id }))} /> : undefined}
     >
       <Card>
         <div class="stack">
           <div class="row">
             <Chip text={v.service.toUpperCase()} />
             <span class="spacer" />
-            <span class="bold" style="font-size:15px">{vendorRateText(v) ?? 'Rate not set'}</span>
+            {money ? <span class="bold" style="font-size:15px">{vendorRateText(v) ?? 'Rate not set'}</span> : null}
           </div>
           {contact !== '' ? <div class="muted break" style="font-size:14px">{contact}</div> : null}
           {v.tags.length > 0 ? <TagChips tags={v.tags} /> : null}
@@ -43,7 +44,7 @@ export function VendorDetailScreen({ id }: { id: string }) {
         </div>
       </Card>
 
-      <Card>
+      {money ? <Card>
         <div class="stack-lg">
           <SectionLabel>VENDOR BALANCE</SectionLabel>
           <div class="figures">
@@ -69,11 +70,11 @@ export function VendorDetailScreen({ id }: { id: string }) {
             </div>
           ) : null}
         </div>
-      </Card>
+      </Card> : null}
 
-      <SectionLabel>{`PAYOUTS · ${payouts.length}`}</SectionLabel>
-      {payouts.length === 0 ? <div class="muted" style="font-size:14px">Nothing paid to this vendor yet.</div> : null}
-      {payouts.map((e) => <EntryRow key={e.id} entry={e} onClick={() => nav.go(to.entry({ entry: e.id }))} />)}
+      {money ? <SectionLabel>{`PAYOUTS · ${payouts.length}`}</SectionLabel> : null}
+      {money && payouts.length === 0 ? <div class="muted" style="font-size:14px">Nothing paid to this vendor yet.</div> : null}
+      {money ? payouts.map((e) => <EntryRow key={e.id} entry={e} onClick={() => nav.go(to.entry({ entry: e.id }))} />) : null}
     </Page>
   );
 }

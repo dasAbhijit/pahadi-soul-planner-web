@@ -5,7 +5,8 @@ import { nav, useRoute, type Route } from './router';
 import { ChatScreen } from './chat/ChatScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { PromptScreen } from './settings/PromptScreen';
-import { CloudSetupScreen } from './settings/CloudSetupScreen';
+import { AccessRemovedScreen, FirstOwnerScreen, JoinScreen, SignInScreen } from './account/AuthScreens';
+import { ChangePasswordScreen, InviteReadyScreen, InviteScreen, PeopleScreen, PersonDetailScreen } from './account/PeopleScreens';
 import { TreksScreen } from './treks/TreksScreen';
 import { TrekDetailScreen } from './treks/TrekDetailScreen';
 import { EditTrekScreen } from './treks/EditTrekScreen';
@@ -18,6 +19,7 @@ import { VendorsScreen } from './vendors/VendorsScreen';
 import { VendorDetailScreen } from './vendors/VendorDetailScreen';
 import { EditVendorScreen } from './vendors/EditVendorScreen';
 import { Page } from './kit';
+import type { Capability } from '../core/roles';
 import { updateAvailable, applyUpdate, onUpdateChange } from './pwa';
 
 const TABS = [
@@ -27,6 +29,13 @@ const TABS = [
   { path: '/vendors', label: 'Vendors', icon: '👥' },
   { path: '/settings', label: 'Settings', icon: '🔑' },
 ];
+
+/** Shows a screen only to roles that may use it. The sheet enforces the same rules; this just keeps the screens honest. */
+function Guard(p: { cap: Capability; children: ComponentChildren }) {
+  const app = useApp();
+  if (app.can(p.cap)) return <>{p.children}</>;
+  return <Page title="Not available"><div class="empty">Your role cannot open this page.</div></Page>;
+}
 
 function screenFor(r: Route): ComponentChildren {
   const [a, b] = r.parts;
@@ -38,14 +47,18 @@ function screenFor(r: Route): ComponentChildren {
     case 'vendors': return <VendorsScreen />;
     case 'settings': return <SettingsScreen />;
     case 'trek': return <TrekDetailScreen id={id} />;
-    case 'edit-trek': return <EditTrekScreen id={id === 'new' ? undefined : id} />;
-    case 'duplicate': return <DuplicateTrekScreen id={id} />;
+    case 'edit-trek': return <Guard cap="editTreks"><EditTrekScreen id={id === 'new' ? undefined : id} /></Guard>;
+    case 'duplicate': return <Guard cap="editTreks"><DuplicateTrekScreen id={id} /></Guard>;
     case 'booking': return <ConfirmBookingScreen trekID={id} />;
     case 'vendor': return <VendorDetailScreen id={id} />;
-    case 'edit-vendor': return <EditVendorScreen id={id === 'new' ? undefined : id} />;
-    case 'prompt': return <PromptScreen />;
-    case 'cloud-setup': return <CloudSetupScreen />;
-    case 'duplicates': return <DuplicatesScreen />;
+    case 'edit-vendor': return <Guard cap="editVendors"><EditVendorScreen id={id === 'new' ? undefined : id} /></Guard>;
+    case 'prompt': return <Guard cap="editRules"><PromptScreen /></Guard>;
+    case 'people': return <PeopleScreen />;
+    case 'invite': return <InviteScreen />;
+    case 'invite-ready': return <InviteReadyScreen />;
+    case 'person': return <PersonDetailScreen id={id} />;
+    case 'change-password': return <ChangePasswordScreen />;
+    case 'duplicates': return <Guard cap="seeMoneyOut"><DuplicatesScreen /></Guard>;
     case 'entry': return <EntryScreen query={r.query} />;
     default: return <Page title="Not found"><div class="empty">That page does not exist.</div></Page>;
   }
@@ -78,10 +91,28 @@ function Banners() {
   );
 }
 
+/** Before anyone is signed in, only the sign-in screens exist. */
+function signedOutScreen(r: Route, ended: boolean): ComponentChildren {
+  switch (r.parts[0]) {
+    case 'join': return <JoinScreen />;
+    case 'first-owner': return <FirstOwnerScreen />;
+    case 'signin': return <SignInScreen />;
+    default: return ended ? <AccessRemovedScreen /> : <SignInScreen />;
+  }
+}
+
 export function App() {
   const app = useApp();
   const route = useRoute();
-  useStore(app.treks, app.bookings);
+  useStore(app.treks, app.bookings, app.account);
+  if (!app.account.signedIn) {
+    return (
+      <div class="shell">
+        <Banners />
+        {signedOutScreen(route, app.account.ended !== undefined)}
+      </div>
+    );
+  }
   const tab = TABS.find((t) => t.path === route.path);
   return (
     <div class="shell">

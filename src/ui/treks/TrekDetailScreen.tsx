@@ -4,6 +4,8 @@ import { partySize, trekTiming, type Booking, type PaymentSummary } from '../../
 import { Card, Chip, Confirm, LinkButton, OutlineButton, Page, PrimaryButton, SectionLabel } from '../kit';
 import { useApp, useStore } from '../hooks';
 import { nav, to } from '../router';
+import { useBy } from '../account/shared';
+import { canEditBooking } from '../../core/roles';
 import { EntryRow, Figure } from './shared';
 
 function paymentLine(pay: PaymentSummary): string {
@@ -14,8 +16,11 @@ function paymentLine(pay: PaymentSummary): string {
   return 'No price set on this trek';
 }
 
-function BookingCard(p: { b: Booking; pay: PaymentSummary; onPay: () => void; onCancel: () => void }) {
+function BookingCard(p: { b: Booking; pay: PaymentSummary; onPay: () => void; onCancel: () => void; canCancel: boolean }) {
   const { b, pay } = p;
+  const by = useBy();
+  const added = by.created(b);
+  const changed = by.changed(b);
   const meta = [`${partySize(b)} traveller${partySize(b) === 1 ? '' : 's'}`];
   if (b.phone !== '') meta.push(b.phone);
   meta.push(fmtDate(b.createdAt));
@@ -28,10 +33,11 @@ function BookingCard(p: { b: Booking; pay: PaymentSummary; onPay: () => void; on
           {pay.status === 'Paid' ? <Chip text="PAID" /> : pay.status === 'Part paid' ? <Chip text="PART PAID" tone="amber" /> : <Chip text="PENDING" tone="neutral" />}
           <span class="small muted">{paymentLine(pay)}</span>
         </div>
+        {added ? <div class="by">Added by {added}{changed && changed !== added ? ` · last changed by ${changed}` : ''}</div> : null}
         <div class="row">
           <LinkButton text="Record payment" onClick={p.onPay} />
           <span class="spacer" />
-          <LinkButton text="Cancel booking" danger onClick={p.onCancel} />
+          {p.canCancel ? <LinkButton text="Cancel booking" danger onClick={p.onCancel} /> : null}
         </div>
       </div>
     </Card>
@@ -40,7 +46,7 @@ function BookingCard(p: { b: Booking; pay: PaymentSummary; onPay: () => void; on
 
 export function TrekDetailScreen({ id }: { id: string }) {
   const app = useApp();
-  useStore(app.treks, app.bookings, app.ledger);
+  useStore(app.treks, app.bookings, app.ledger, app.account);
   const [cancelling, setCancelling] = useState<Booking | null>(null);
   const trek = app.treks.trek(id);
 
@@ -57,7 +63,7 @@ export function TrekDetailScreen({ id }: { id: string }) {
   return (
     <Page
       title={trek.name || 'Trek'}
-      trailing={<LinkButton text="Edit" onClick={() => nav.go(to.editTrek(trek.id))} />}
+      trailing={app.can('editTreks') ? <LinkButton text="Edit" onClick={() => nav.go(to.editTrek(trek.id))} /> : undefined}
       footer={<PrimaryButton text="+  Add booking" onClick={() => nav.go(to.addBooking(trek.id))} disabled={trekTiming(trek) === 'past'} />}
     >
       <Card>
@@ -70,7 +76,7 @@ export function TrekDetailScreen({ id }: { id: string }) {
             </div>
             <div class="small muted right">{taken} seat{taken === 1 ? '' : 's'} taken<br />by bookings below</div>
           </div>
-          {trek.seatsLeft !== undefined ? (
+          {trek.seatsLeft !== undefined && app.can('editTreks') ? (
             <>
               <hr class="line" />
               <div class="row">
@@ -85,7 +91,7 @@ export function TrekDetailScreen({ id }: { id: string }) {
         </div>
       </Card>
 
-      <Card>
+      {app.can('seeMoneyOut') ? <Card>
         <div class="stack-lg">
           <SectionLabel>TRIP FINANCE</SectionLabel>
           <div class="figures">
@@ -102,13 +108,14 @@ export function TrekDetailScreen({ id }: { id: string }) {
             {tripEntries.map((e) => <EntryRow key={e.id} entry={e} scope={scope} onClick={() => nav.go(to.entry({ entry: e.id }))} />)}
           </div>
         </div>
-      </Card>
+      </Card> : null}
 
       <SectionLabel>{`BOOKINGS · ${list.length}`}</SectionLabel>
       {list.length === 0 ? <div class="muted" style="font-size:14px">No bookings yet. Tap Add booking when a client confirms.</div> : null}
       {list.map((b) => (
         <BookingCard key={b.id} b={b} pay={app.ledger.paymentSummary(b, trek)}
-          onPay={() => nav.go(to.entry({ kind: 'in', trek: trek.id, booking: b.id }))} onCancel={() => setCancelling(b)} />
+          onPay={() => nav.go(to.entry({ kind: 'in', trek: trek.id, booking: b.id }))} onCancel={() => setCancelling(b)}
+          canCancel={app.can('cancelBooking') && canEditBooking(app.account.role, app.account.myId, b)} />
       ))}
 
       {cancelling ? (

@@ -155,6 +155,8 @@ function MessageRow(p: { m: ChatMessage; streaming: boolean; onCopy: () => void;
 }
 
 function ProposalCard(p: { p: Proposal; onApply: (text: string) => void; onDismiss: () => void }) {
+  const app = useApp();
+  const mayApply = app.can('editRules');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.p.text);
   const { state, text } = p.p;
@@ -169,11 +171,11 @@ function ProposalCard(p: { p: Proposal; onApply: (text: string) => void; onDismi
             <div style="font-weight:500">{text}</div>
           )}
           <div class="row wrap">
-            <button type="button" class="btn small" style="width:auto" onClick={() => p.onApply(editing ? draft : text)}>Apply</button>
-            <OutlineButton small text={editing ? 'Undo edit' : 'Edit'} onClick={() => { if (editing) setEditing(false); else { setDraft(text); setEditing(true); } }} />
+            {mayApply ? <button type="button" class="btn small" style="width:auto" onClick={() => p.onApply(editing ? draft : text)}>Apply</button> : null}
+            {mayApply ? <OutlineButton small text={editing ? 'Undo edit' : 'Edit'} onClick={() => { if (editing) setEditing(false); else { setDraft(text); setEditing(true); } }} /> : null}
             <LinkButton text="Dismiss" onClick={p.onDismiss} />
           </div>
-          <div class="tiny muted">Nothing changes until you tap Apply.</div>
+          <div class="tiny muted">{mayApply ? 'Nothing changes until you tap Apply.' : 'Only Managers and Owners can save rules. Tell one of them if this should be kept.'}</div>
         </>
       ) : state === 'applied' ? (
         <>

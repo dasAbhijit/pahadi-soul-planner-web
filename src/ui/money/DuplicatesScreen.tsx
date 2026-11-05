@@ -3,13 +3,15 @@ import { useApp, useStore } from '../hooks';
 import { Card, Confirm, InfoNote, LinkButton, OutlineButton, Page } from '../kit';
 import { fmtDate, fmtDateTime, rupees } from '../../core/fmt';
 import { duplicateGroups } from '../../core/syncmerge';
+import { useBy } from '../account/shared';
 import type { LedgerEntry } from '../../core/models';
 import './money.css';
 
 /** Payments that look like the same one typed twice. Nothing is removed automatically: keep them all, or delete one. */
 export function DuplicatesScreen() {
   const app = useApp();
-  useStore(app.ledger, app.settings);
+  useStore(app.ledger, app.settings, app.account);
+  const by = useBy();
   const dismissed = app.settings.dismissedDuplicates;
   const groups = useMemo(() => duplicateGroups(app.ledger.entries, dismissed), [app.ledger.entries, dismissed]);
   const [pending, setPending] = useState<LedgerEntry | null>(null);
@@ -31,7 +33,7 @@ export function DuplicatesScreen() {
               {g.entries.map((e) => (
                 <div class="row" key={e.id}>
                   <div class="grow stack" style="gap:2px">
-                    <div style="font-size:14px">Recorded {fmtDateTime(e.createdAt)} · {e.mode}</div>
+                    <div style="font-size:14px">Recorded {fmtDateTime(e.createdAt)} · {e.mode}{by.created(e) ? ` · by ${by.created(e)}` : ''}</div>
                     {e.note !== '' ? <div class="small muted clamp2 break">{e.note}</div> : null}
                   </div>
                   <LinkButton text="Delete" danger onClick={() => setPending(e)} />

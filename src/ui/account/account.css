@@ -1,0 +1,10 @@
+.auth { max-width: 440px; margin: 0 auto; width: 100%; padding-top: 12px; }
+.auth .logo { width: 104px; height: 104px; border-radius: 22px; border: 1px solid var(--border); background: #fff; display: block; margin: 8px auto 4px; }
+.auth h1.big { font-size: 26px; margin: 4px 0 0; text-align: center; }
+.auth .sub { text-align: center; color: var(--muted); }
+.auth .center-link { text-align: center; }
+.avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--green-bg); color: var(--pine); display: grid; place-items: center; font-weight: 700; flex: none; }
+.avatar.lg { width: 56px; height: 56px; font-size: 18px; }
+.person-row { display: flex; align-items: center; gap: 12px; }
+.invite-box { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; background: var(--ground); border: 1px dashed var(--field-border); border-radius: 10px; padding: 12px; user-select: all; }
+.by { color: var(--muted); font-size: 12px; }

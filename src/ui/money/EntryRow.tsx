@@ -1,4 +1,5 @@
 import { Card } from '../kit';
+import { useBy } from '../account/shared';
 import { amountIn, type LedgerEntry, type LedgerScope } from '../../core/models';
 import { fmtDate, rupees } from '../../core/fmt';
 import './money.css';
@@ -6,6 +7,7 @@ import './money.css';
 /** One transaction in a list. Looking at a single trip shows that trip's share of the amount. */
 export function EntryRow(p: { entry: LedgerEntry; scope?: LedgerScope; onClick: () => void }) {
   const e = p.entry;
+  const by = useBy().first(e);
   const scope: LedgerScope = p.scope ?? { type: 'all' };
   const isIn = e.kind === 'Money in';
   const title = (e.vendorName || e.customerName || e.party || e.kind) as string;
@@ -15,6 +17,7 @@ export function EntryRow(p: { entry: LedgerEntry; scope?: LedgerScope; onClick: 
   else parts.push(`${e.shares.length} trips`);
   if (e.customerName && e.party !== '' && e.party !== e.customerName) parts.unshift(e.party);
   if (e.vendorName && e.vendorName !== e.party) parts.unshift(e.vendorName);
+  if (by) parts.push(by);
   const shown = amountIn(e, scope);
 
   return (

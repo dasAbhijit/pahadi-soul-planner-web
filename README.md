@@ -2,7 +2,7 @@
 
 The Pahadi Soul Travels staff app as an installable website. It does the same things as the iPhone app (`../pahadi_soul_travels`) and the Android app (`../pahadi_soul_travels_android`): chat with Gemini using the staff member's own key, pitch upcoming treks, record bookings, keep a money ledger by trip, traveller and vendor, keep a vendor directory the assistant can suggest from, learn house rules from staff guidance, and sync through a Google Sheet.
 
-It runs in the phone's browser, and installs to the Home Screen like an app. Because it is not signed by Apple, it **does not expire after 7 days** like the sideloaded iPhone app.
+People sign in with a name and password (Owner, Manager or Staff), and every record shows who recorded it. It runs in the phone's browser, and installs to the Home Screen like an app. Because it is not signed by Apple, it **does not expire after 7 days** like the sideloaded iPhone app.
 
 TypeScript, Preact, Vite. No server and no database: everything is stored on the device.
 
@@ -15,13 +15,14 @@ The core in `src/core` is a port of the Android core, so the rules match: every 
 
 - **Backups** use the same JSON layout, so a backup moves between the web, iPhone and Android apps.
 - **Cloud sync** writes the same five tabs and columns, and merges the same way (last change wins per record, deletes are kept as tombstones, seats are recomputed, lookalike payments are flagged). A phone, an Android and a web app can all sync to one sheet.
+- **People and roles** are checked by the sheet's script as well as the app: Staff never receive money out or vendor rates. See [`cloud/README.md`](cloud/README.md).
 - Records written by the other apps are read as they are: uppercase UUIDs, ISO 8601 dates to the second, empty optionals left out. A row the web app cannot read stops the sync and changes nothing.
 
 ## Differences from the phone apps
 
 | | Phone apps | Web app |
 |---|---|---|
-| Gemini key and sync secret | Keychain / Android Keystore (encrypted) | This browser's storage, **unencrypted**. Never in backups or the sheet |
+| Gemini key and session code | Keychain / Android Keystore (encrypted) | This browser's storage, **unencrypted**. Never in backups or the sheet. Signing out removes them |
 | Where data lives | App's private folder | The browser's storage for this address. The Home Screen app and Safari keep separate copies on iPhone |
 | Expiry | 7 days (iPhone, free Apple ID) | None |
 | Backup | File picker | Share sheet (iPhone, Android) or a download (computer) |
@@ -36,12 +37,12 @@ npm test             # vitest
 npm run typecheck
 npm run build        # dist/ with the offline service worker (sw.js)
 npm run preview      # serve dist/ to try the offline behaviour
-node cloud/test-code.js   # the sheet script, against a fake Google
-npm run build && npm run e2e   # two real Chrome profiles sync through the real cloud/Code.gs (fake Google)
+node cloud/test-code.js && node cloud/test-people.js   # the sheet script, against a fake Google
+npm run build && npm run e2e   # three real Chrome profiles (Owner, Manager, Staff) sign in and sync through the real cloud/Code.gs (fake Google)
 npm run tour              # opens every screen, checks for errors, reopens offline (needs a build first)
 ```
 
-`npm run e2e` needs Google Chrome on this Mac. It checks the whole path in a browser engine: connect, add a trek, book from two phones at once, merge, seats, a double entry flagged, delete reaching the other phone.
+`npm run e2e` needs Google Chrome on this Mac. It checks the whole path in a browser engine: first Owner, invites, sign-in, add a trek, book from two phones at once, merge, seats, a double entry flagged, delete reaching the other phone, what Staff can and cannot see, and removing a person.
 
 The service worker (`scripts/make-sw.mjs` writes `dist/sw.js`) keeps the app files for offline use and only touches this site's own files. Calls to Google (Gemini and the sync script) always go to the network.
 

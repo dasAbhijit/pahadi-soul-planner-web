@@ -3,6 +3,8 @@ import { useApp, useStore } from '../hooks';
 import { nav, to } from '../router';
 import { Card, DateField, Field, Page, PickerRow, SectionLabel, Segmented } from '../kit';
 import { EntryRow } from './EntryRow';
+import { canEditEntry } from '../../core/roles';
+import { InfoNote } from '../kit';
 import { fmtDate, rupees, signedRupees } from '../../core/fmt';
 import { addDays, startOfDay, toInstant, type Instant } from '../../core/ids';
 import { duplicateGroups } from '../../core/syncmerge';
@@ -18,9 +20,10 @@ type KindFilter = 'all' | EntryKind;
 
 export function MoneyScreen() {
   const app = useApp();
-  useStore(app.ledger, app.treks, app.vendors, app.settings);
+  useStore(app.ledger, app.treks, app.vendors, app.settings, app.account);
 
   const entries = app.ledger.entries;
+  const staffView = !app.can('seeMoneyOut');
   const dupCount = useMemo(() => duplicateGroups(entries, app.settings.dismissedDuplicates).length, [entries, app.settings.dismissedDuplicates]);
 
   const [tripID, setTripID] = useState<string>('');
@@ -47,9 +50,24 @@ export function MoneyScreen() {
   const tripOptions = [{ value: '', label: 'All trips' }, ...treks.map((t) => ({ value: t.id, label: label(t) }))];
   const vendorOptions = [{ value: '', label: 'All vendors' }, ...app.vendors.vendors.map((v) => ({ value: v.id, label: v.name }))];
 
+  if (staffView) {
+    const mine = app.ledger.filtered({ type: 'all' });
+    return (
+      <Page title="Money" tab trailing={<button class="iconbtn" type="button" aria-label="Record payment received" onClick={() => nav.go(to.entry())}>+</button>}>
+        <InfoNote>You can record payments received. Money out, totals and statements are visible to Managers and Owners.</InfoNote>
+        <SectionLabel>Payments you can see · {mine.length}</SectionLabel>
+        {mine.length === 0 ? <div class="small muted">No payments yet. Tap + to record one.</div> : null}
+        {mine.map((e) => (
+          <EntryRow key={e.id} entry={e}
+            onClick={() => { if (canEditEntry(app.account.role, app.account.myId, e)) nav.go(to.entry({ entry: e.id, kind: 'in' })); }} />
+        ))}
+      </Page>
+    );
+  }
+
   return (
     <Page title="Money" tab trailing={<button class="iconbtn" type="button" aria-label="Add transaction" onClick={() => nav.go(to.entry())}>+</button>}>
-      {dupCount > 0 ? (
+      {dupCount > 0 && app.can('editAnyRecord') ? (
         <button class="dup-banner" type="button" onClick={() => nav.go(to.duplicates())}>
           <span style="font-size:18px;color:var(--rust)">⚠</span>
           <span class="grow stack" style="gap:2px">
